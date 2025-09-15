@@ -1,2 +1,4 @@
-# Java-class-projects
-Projects of java made in class.
+# Courier Quest Game
+Game made by:
+Isaac Rodriguez Aguero 
+Ezequiel...
