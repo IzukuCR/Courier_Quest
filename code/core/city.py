@@ -1,3 +1,7 @@
+from services.data_manager import DataManager
+from pathlib import Path
+
+
 class City:
     def __init__(self, city_data):
         self.name = city_data.get("name", "Unknown")
@@ -9,31 +13,10 @@ class City:
         self.goal = city_data.get("goal", 0)
 
     def get_tile(self, x, y):
-        """
-        Get tile at specific coordinates.
 
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
-
-        Returns:
-            str: Tile type character or None if out of bounds
-        """
         if 0 <= y < len(self.tiles) and 0 <= x < len(self.tiles[y]):
             return self.tiles[y][x]
         return None
-
-    def get_tile_info(self, tile_type):
-        """
-        Get information about a specific tile type.
-
-        Args:
-            tile_type (str): Tile type character
-
-        Returns:
-            dict: Tile information from legend
-        """
-        return self.legend.get(tile_type, {})
 
     def get_surface_weight(self, x, y):
         """
@@ -91,50 +74,45 @@ class City:
         return counts
 
     def is_valid_position(self, x, y):
-        """
-        Check if position is within city bounds.
 
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
-
-        Returns:
-            bool: True if position is valid
-        """
         return 0 <= y < len(self.tiles) and 0 <= x < len(self.tiles[y])
 
-    def get_neighbors(self, x, y, include_diagonal=False):
-        """
-        Get neighboring tile coordinates.
-
-        Args:
-            x (int): X coordinate
-            y (int): Y coordinate
-            include_diagonal (bool): Include diagonal neighbors
-
-        Returns:
-            list: List of valid neighbor coordinates
-        """
-        neighbors = []
-
-        # Cardinal directions
-        directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-
-        # Add diagonal directions if requested
-        if include_diagonal:
-            directions.extend([(-1, -1), (-1, 1), (1, -1), (1, 1)])
-
-        for dx, dy in directions:
-            nx, ny = x + dx, y + dy
-            if self.is_valid_position(nx, ny):
-                neighbors.append((nx, ny))
-
-        return neighbors
-
     def __str__(self):
-        # String representation of the City object.
-        return f"City v{self.version} ({self.width}x{self.height}) - Goal: {self.goal}"
+        if not self.tiles:
+            return "<Empty city map>"
+
+        result = []
+        result.append(
+            f"City: {self.name} ({self.width}x{self.height}) - Goal: {self.goal}")
+        result.append("")
+
+        # Map rows with more spacing between characters
+        for row in self.tiles:
+            row_str = ""
+            for tile in row:
+                if isinstance(tile, list):
+                    # Take first character of each element in the tile list
+                    cell_content = "".join(str(item)[0] for item in tile)
+                else:
+                    cell_content = str(tile)[0]  # Just first character
+
+                # Add spaces between each character to make it more square
+                row_str += cell_content + "  "  # Two spaces between each character
+
+            result.append(row_str)
+
+        return "\n".join(result)
 
     def __repr__(self):
         # Detailed representation of the City object.
         return f"City(version='{self.version}', size={self.width}x{self.height}, tiles={len(self.tiles)})"
+
+    @classmethod
+    def from_data_manager(cls):
+        # Create a City instance using data loaded from DataManager.
+        data_manager = DataManager()
+        city_data = data_manager.load_map()
+        if city_data is not None:
+            return cls(city_data)
+        else:
+            raise ValueError("City data could not be loaded.")
