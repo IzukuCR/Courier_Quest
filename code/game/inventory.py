@@ -1,5 +1,5 @@
-from core.order import Order
-from services.data_manager import DataManager
+from ..core.order import Order
+from ..services.data_manager import DataManager
 
 
 class Inventory:

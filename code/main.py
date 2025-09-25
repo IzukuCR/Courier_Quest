@@ -1,9 +1,13 @@
-from core.city import City
-from services.data_manager import DataManager
+import arcade
+from .core.city import City
+from .services.data_manager import DataManager
+from .interface.interface import Interface
 
+print(f"Arcade Version: {arcade.VERSION}")
 
-def main():
+if __name__ == "__main__":
     try:
+        # Inicializar datos primero
         data_manager = DataManager()
         data_manager.save_map_data()
         data_manager.save_jobs_data()
@@ -13,9 +17,11 @@ def main():
         city = City.from_data_manager()
         print("City map loaded successfully!\n")
         print(city)
+
+        # Luego crear la ventana y ejecutar la aplicación
+        window = Interface()
+        arcade.run()
     except Exception as e:
         print(f"Failed to load city: {e}")
-
-
-if __name__ == "__main__":
-    main()
+        # Mantener la ventana abierta esperando input del usuario
+        input("Presiona Enter para cerrar...")

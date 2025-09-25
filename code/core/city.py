@@ -1,4 +1,4 @@
-from services.data_manager import DataManager
+from ..services.data_manager import DataManager
 from pathlib import Path
 
 
