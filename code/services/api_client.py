@@ -18,7 +18,7 @@ class APIClient:
                 print(
                     f"Failed to fetch map data. Status code: {response.status_code}")
         except Exception as e:
-            print(f"Error in get_map_data: {e}")
+            print(f"Api Client: Error in get_map_data: {e}")
         return None
 
     @staticmethod
@@ -32,7 +32,7 @@ class APIClient:
                 print(
                     f"Failed to fetch jobs data. Status code: {response.status_code}")
         except Exception as e:
-            print(f"Error in get_jobs_data: {e}")
+            print(f"Api Client: Error in get_jobs_data: {e}")
         return None
 
     @staticmethod
@@ -44,7 +44,7 @@ class APIClient:
                 return response
             else:
                 print(
-                    f"Failed to fetch weather data. Status code: {response.status_code}")
+                    f"Api Client: Failed to fetch weather data. Status code: {response.status_code}")
         except Exception as e:
-            print(f"Error in get_weather_data: {e}")
+            print(f"Api Client: Error in get_weather_data: {e}")
         return None

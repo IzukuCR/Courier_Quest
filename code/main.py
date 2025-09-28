@@ -1,27 +1,20 @@
-import arcade
+import pygame
 from .core.city import City
 from .services.data_manager import DataManager
-from .interface.interface import Interface
+from .interface.main_window import MainWindow
 
-print(f"Arcade Version: {arcade.VERSION}")
+print(f"pygame Version: {pygame.__version__}")
 
 if __name__ == "__main__":
     try:
-        # Inicializar datos primero
-        data_manager = DataManager()
-        data_manager.save_map_data()
-        data_manager.save_jobs_data()
-        data_manager.save_weather_data()
 
-        print("City map loaded successfully from API!\n")
-        city = City.from_data_manager()
-        print("City map loaded successfully!\n")
-        print(city)
+        window = MainWindow()
+        window.setup()
+        window.run()
 
-        # Luego crear la ventana y ejecutar la aplicación
-        window = Interface()
-        arcade.run()
     except Exception as e:
         print(f"Failed to load city: {e}")
-        # Mantener la ventana abierta esperando input del usuario
-        input("Presiona Enter para cerrar...")
+        input("Press enter to close...")
+
+        import traceback
+        traceback.print_exc()

@@ -42,7 +42,7 @@ class DataManager:
                     with open(json_file_path, "r", encoding="utf-8") as f:
                         file_data = json.load(f)
                 except json.JSONDecodeError:
-                    # Si el archivo está corrupto, crear nueva estructura
+                    # If file is corrupted or empty, start a new structure
                     file_data = {"versions": []}
             else:
                 file_data = {"versions": []}
@@ -89,29 +89,26 @@ class DataManager:
             return False
 
         except Exception as e:
-            print(f"Error adding {data_type} version: {e}")
+            print(f"Data Manager: Error adding {data_type} version: {e}")
             return False
 
     def save_map_data(self):
-        """Get map data from API and add new versions to JSON"""
         try:
             response = self.api_client.get_map_data()
             if response is not None:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.MAP_JSON, "map")
         except Exception as e:
-            print(f"Error fetching map data from API: {e}")
+            print(f"Data Manager: Error fetching map data from API: {e}")
         return False
 
     def save_jobs_data(self):
-        """Get jobs data from API and add new versions to JSON"""
         try:
             response = self.api_client.get_jobs_data()
             if response is not None:
                 api_data = response.json()
 
-                # Handle jobs structure: {"version": "1.0", "data": [...]}
-                # where data is an array, not an object with version
+                # Where data is an array, not an object with version
                 if isinstance(api_data, dict) and "data" in api_data and "version" in api_data:
                     # Wrap the structure to match expected format for _add_version_to_json
                     wrapped_data = {
@@ -125,20 +122,19 @@ class DataManager:
                     # If API returns different structure, handle as before
                     return self._add_version_to_json(api_data, self.JOBS_JSON, "jobs")
         except Exception as e:
-            print(f"Error fetching jobs data from API: {e}")
+            print(f"Data Manager: Error fetching jobs data from API: {e}")
         return False
 
     def save_weather_data(self):
-        """Get weather data from API and add new versions to JSON"""
         try:
             response = self.api_client.get_weather_data()
             if response is not None:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_JSON, "weather")
         except Exception as e:
-            print(f"Error fetching weather data from API: {e}")
+            print(f"Data Manager: Error fetching weather data from API: {e}")
 
-    def load_map(self):
+    def load_city(self):
         try:  # Try to get map data from API
             response = self.api_client.get_map_data()
             if response is not None:
@@ -147,7 +143,7 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Error fetching map data from API: {e}")
+            print(f"Data Manager: Error fetching map data from API: {e}")
 
         # Fallback: load from local JSON
         if self.MAP_JSON.exists():
@@ -164,11 +160,11 @@ class DataManager:
                     return latest_version["data"]
 
             except Exception as e:
-                print(f"Error reading local map file: {e}")
+                print(f"Data Manager: Error reading local map file: {e}")
                 return None
 
         else:
-            print(f"Local map file not found: {self.MAP_JSON}")
+            print(f"Data Manager: Local map file not found: {self.MAP_JSON}")
             return None
 
     def load_jobs(self):
@@ -180,7 +176,7 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Error fetching jobs data from API: {e}")
+            print(f"Data Manager: Error fetching jobs data from API: {e}")
 
     # Fallback: load from local JSON
         if self.JOBS_JSON.exists():
@@ -203,10 +199,10 @@ class DataManager:
                         return data["data"]  # Returns the array directly
 
             except Exception as e:
-                print(f"Error reading local jobs file: {e}")
+                print(f"Data Manager: Error reading local jobs file: {e}")
                 return None
         else:
-            print(f"Local jobs file not found: {self.JOBS_JSON}")
+            print(f"Data Manager: Local jobs file not found: {self.JOBS_JSON}")
             return None
 
     def load_weather(self):
@@ -218,7 +214,7 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Error fetching weather data from API: {e}")
+            print(f"Data Manager: Error fetching weather data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_JSON.exists():
@@ -233,8 +229,9 @@ class DataManager:
                         )
                     return latest_version["data"]
             except Exception as e:
-                print(f"Error reading local weather file: {e}")
+                print(f"Data Manager: Error reading local weather file: {e}")
                 return None
         else:
-            print(f"Local weather file not found: {self.WEATHER_JSON}")
+            print(
+                f"Data Manager: Local weather file not found: {self.WEATHER_JSON}")
             return None
