@@ -2,7 +2,7 @@ import requests
 
 map_url = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/city/map"
 jobs_url = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/city/jobs"
-weather_url_seed = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/city/weather?city=TigerCity&mode=seed"
+weather_url_seed = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/city/weather?mode=seed"
 weather_url_burst = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontainerapps.io/city/weather?mode=plan"
 
 

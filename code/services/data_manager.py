@@ -60,34 +60,47 @@ class DataManager:
 
     def _add_version_to_json(self, api_data: dict, json_file_path: Path, data_type: str):
         try:
+            # Ensure data directory exists
+            if not self.DATA_DIR.exists():
+                self.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
             # Load existing file or create new structure
             if json_file_path.exists() and json_file_path.stat().st_size > 0:
                 try:
                     with open(json_file_path, "r", encoding="utf-8") as f:
                         file_data = json.load(f)
                 except json.JSONDecodeError:
-                    # If file is corrupted or empty, start a new structure
                     file_data = {"versions": []}
             else:
                 file_data = {"versions": []}
 
-            api_version = api_data.get("data", {}).get("version", "1.0")
+            api_version = api_data.get("version", "1.0")
+            new_content = api_data.get("data")
+            # Check if this version exists AND if content is different
+            should_save = True
+            if file_data.get("versions"):
+                for existing_version in file_data["versions"]:
+                    if existing_version.get("api_version") == api_version:
+                        existing_content = existing_version.get("data")
 
-            # Check if this version already exists
-            version_exists = False
-            for existing_version in file_data.get("versions", []):
-                if existing_version.get("api_version") == api_version:
-                    version_exists = True
-                    print(
-                        f"{data_type.capitalize()} version {api_version} already exists")
-                    break
+                        # Compare content, not just version
+                        if existing_content == new_content:
+                            print(
+                                f"{data_type.capitalize()} version {api_version} with same content already exists")
+                            should_save = False
+                        else:
+                            print(
+                                f"{data_type.capitalize()} version {api_version} exists but content changed - updating")
+                            # Remove old version to replace it
+                            file_data["versions"].remove(existing_version)
+                        break
 
-            # Add new version if it doesn't exist
-            if not version_exists:
+            # Add new version if content is different or doesn't exist
+            if should_save:
                 new_version_entry = {
                     "entry_id": len(file_data.get("versions", [])) + 1,
                     "api_version": api_version,
-                    "data": api_data.get("data"),
+                    "data": new_content,
                     "added_at": datetime.now().isoformat()
                 }
 
@@ -107,10 +120,11 @@ class DataManager:
                     json.dump(file_data, f, indent=4, ensure_ascii=False)
 
                 print(
-                    f"New {data_type} version {api_version} added successfully")
+                    f"{data_type.capitalize()} version {api_version} saved successfully")
                 return True
-
-            return False
+            else:
+                print(f"{data_type.capitalize()} - no changes detected")
+                return False
 
         except Exception as e:
             print(f"Data Manager: Error adding {data_type} version: {e}")
@@ -188,15 +202,20 @@ class DataManager:
             try:
                 with open(self.MAP_JSON, "r", encoding="utf-8") as f:
                     data = json.load(f)
-
-                    if "versions" in data and data["versions"]:
-                        latest_version = max(
-                            data["versions"],
-                            key=lambda x: tuple(
-                                map(int, x["api_version"].split('.')))
-                        )
-                        return latest_version["data"]
-
+                if "versions" in data and data["versions"]:
+                    # Versioned structure
+                    latest_version = max(
+                        data["versions"],
+                        key=lambda x: tuple(
+                            map(int, x["api_version"].split('.')))
+                    )
+                    return latest_version["data"]
+                elif "data" in data:
+                    # Old direct structure
+                    return data["data"]
+                else:
+                    # Fallback: assume all content is data
+                    return data
             except Exception as e:
                 print(f"Data Manager: Error reading local map file: {e}")
                 return None
@@ -237,19 +256,22 @@ class DataManager:
                 with open(self.JOBS_JSON, "r", encoding="utf-8") as f:
                     data = json.load(f)
 
-                    # Handle versioned structure (created by save_jobs_data)
-                    if "versions" in data and data["versions"]:
-                        latest_version = max(
-                            data["versions"],
-                            key=lambda x: tuple(
-                                map(int, x["api_version"].split('.')))
-                        )
-                        # Return the jobs array from the wrapped structure
-                        return latest_version["data"].get("jobs", [])
-
-                    # Handle original structure from jobs.json
-                    elif "data" in data:
-                        return data["data"]  # Returns the array directly
+                if "versions" in data and data["versions"]:
+                    # Versioned structure
+                    latest_version = max(
+                        data["versions"],
+                        key=lambda x: tuple(
+                            map(int, x["api_version"].split('.')))
+                    )
+                    # Jobs content might be nested
+                    version_data = latest_version["data"]
+                    return version_data.get("jobs", version_data)
+                elif "data" in data:
+                    # Old direct structure
+                    return data["data"]
+                else:
+                    # Fallback: assume all content is data
+                    return data
 
             except Exception as e:
                 print(f"Data Manager: Error reading local jobs file: {e}")
@@ -277,13 +299,20 @@ class DataManager:
             try:
                 with open(self.WEATHER_JSON, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if "versions" in data and data["versions"]:
-                        latest_version = max(
-                            data["versions"],
-                            key=lambda x: tuple(
-                                map(int, x["api_version"].split('.')))
-                        )
-                        return latest_version["data"]
+                if "versions" in data and data["versions"]:
+                    # Versioned structure
+                    latest_version = max(
+                        data["versions"],
+                        key=lambda x: tuple(
+                            map(int, x["api_version"].split('.')))
+                    )
+                    return latest_version["data"]
+                elif "data" in data:
+                    # Old direct structure
+                    return data["data"]
+                else:
+                    # Fallback: assume all content is data
+                    return data
             except Exception as e:
                 print(
                     f"Data Manager: Error reading local weather (seed) file: {e}")
@@ -312,13 +341,20 @@ class DataManager:
             try:
                 with open(self.WEATHER_BURST_JSON, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    if "versions" in data and data["versions"]:
-                        latest_version = max(
-                            data["versions"],
-                            key=lambda x: tuple(
-                                map(int, x["api_version"].split('.')))
-                        )
-                        return latest_version["data"]
+                if "versions" in data and data["versions"]:
+                    #  Versioned structure
+                    latest_version = max(
+                        data["versions"],
+                        key=lambda x: tuple(
+                            map(int, x["api_version"].split('.')))
+                    )
+                    return latest_version["data"]
+                elif "data" in data:
+                    #  Old direct structure
+                    return data["data"]
+                else:
+                    # Fallback: assume all content is data
+                    return data
             except Exception as e:
                 print(
                     f"Data Manager: Error reading local weather (burst) file: {e}")
