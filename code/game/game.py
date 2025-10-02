@@ -1,8 +1,8 @@
-from ..services.data_manager import DataManager
 from ..weather.weather import Weather
 from ..core.city import City
 from .inventory import Inventory
 from .scoreboard import Scoreboard
+from .player import Player
 
 
 class Game:
@@ -17,21 +17,24 @@ class Game:
     def __init__(self):
 
         if not Game._initialized:
-            self._data_manager = DataManager()
+            from ..services.data_manager import DataManager
+            self._data_manager = DataManager()  # Init data manager
             try:
-                self._city = City.from_data_manager()
-                self._weather = self._data_manager.load_weather()
-                self._inventory = Inventory().load_orders()
+                self._city = City.from_data_manager()  # Load city from data manager
+                self._weather = Weather().load_weather()  # Load weather from data manager
+                self._inventory = Inventory().load_orders()  # Load inventory from data manager
             except Exception as e:
-                print(f"Game Class: Error loading game data: {e}")
                 self._city = City([])
                 self._weather = Weather({})
                 self._inventory = Inventory()
+                print(f"Game Class: Error loading game data: {e}")
 
             self._scoreboard = Scoreboard()
-            self._player_name = None
+            self._player_name = "Player1"
             self._game_time = 0.0
-            # self._is_playing = False (not used yet)
+            self._player = None
+            self._is_playing = False
+            self._goal = self._city.goal if self._city else 0
 
             Game._initialized = True  # Prevent re-initialization
 
@@ -62,3 +65,34 @@ class Game:
 
     def resume_game(self):
         self._is_playing = True
+
+    def start_new_game(self):
+        self._is_playing = True
+        self._game_time = 0.0
+        self._scoreboard = Scoreboard(self._player_name)  # Reset scoreboard
+
+        # Create player at a valid starting position
+        if self._city and hasattr(self._city, 'tiles'):
+            # Start near the center or first non-blocked tile
+            start_x, start_y = 15, 15  # Assuming a 30x30 map center
+            found_start = False
+            if not self._city.is_blocked(start_x, start_y):
+                found_start = True
+            if not found_start:
+                for y in range(len(self._city.tiles)):
+                    for x in range(len(self._city.tiles[0])):
+                        if not self._city.is_blocked(x, y):
+                            start_x, start_y = x, y
+                            found_start = True
+                            break
+                    if found_start:
+                        break
+
+            self._player = Player(start_x, start_y)
+            print(f"Player position on ({start_x}, {start_y})")
+        else:
+            self._player = Player(0, 0)
+            print("Player created at (0,0) - no valid city")
+
+    def get_player(self):
+        return self._player

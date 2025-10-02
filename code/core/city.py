@@ -83,7 +83,7 @@ class City:
     @classmethod
     def from_data_manager(cls):
         # Create a City instance using data loaded from DataManager.
-        data_manager = DataManager()
+        data_manager = DataManager().get_instance()
         city_data = data_manager.load_city()
         if city_data is not None:
             return cls(city_data)

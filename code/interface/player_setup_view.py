@@ -138,15 +138,16 @@ class PlayerSetupView(BaseView):
     def go_back(self):
         from .menu_view import MenuView
         menu_view = MenuView()
-        self.window.show_view(menu_view)
+        self.window.show_view(menu_view)  # Switch to menu view
 
     def continue_to_game(self):
-        print(f"Player Name: {self.player_name}")
 
         from ..game.game import Game
         game = Game()
-        game.set_player_name(self.player_name)
+        game.set_player_name(self.player_name)  # Set player name
+
+        game.start_new_game()  # Reset game state for new game
 
         from .game_view import GameView
         game_view = GameView()
-        self.window.show_view(game_view)
+        self.window.show_view(game_view)  # Switch to game view

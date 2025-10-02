@@ -7,7 +7,7 @@ class Inventory:
         self.orders = self.load_orders()
 
     def load_orders(self):
-        data_manager = DataManager()
+        data_manager = DataManager().get_instance()
         jobs_data = data_manager.load_jobs()
         orders = []
         if jobs_data and "jobs" in jobs_data:

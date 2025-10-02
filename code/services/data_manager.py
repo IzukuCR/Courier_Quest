@@ -5,13 +5,37 @@ from .api_client import APIClient
 
 
 class DataManager:
+    _instance = None
+    _initialized = False
+
     DATA_DIR = Path(__file__).parent.parent / "data"
     MAP_JSON = DATA_DIR / "cities.json"
     JOBS_JSON = DATA_DIR / "jobs.json"
     WEATHER_JSON = DATA_DIR / "weather.json"
+    WEATHER_BURST_JSON = DATA_DIR / "burst.json"
 
     def __init__(self):
-        self.api_client = APIClient()
+        if not DataManager._initialized:
+            self.api_client = APIClient()
+            DataManager._initialized = True
+
+    def __new__(cls):
+        # Singleton pattern
+        if cls._instance is None:
+            cls._instance = super(DataManager, cls).__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def get_instance(cls):
+        # Singleton access method
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def reset(self):
+        # Method to reset the singleton (for testing or re-initialization)
+        DataManager._instance = None
+        DataManager._initialized = False
 
     def _compare_versions(self, version1: str, version2: str) -> int:
         def version_to_tuple(v):
@@ -125,20 +149,34 @@ class DataManager:
             print(f"Data Manager: Error fetching jobs data from API: {e}")
         return False
 
-    def save_weather_data(self):
+    def save_weather_data_seed(self):
         try:
-            response = self.api_client.get_weather_data()
+            response = self.api_client.get_weather_data_seed()
             if response is not None:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_JSON, "weather")
         except Exception as e:
-            print(f"Data Manager: Error fetching weather data from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather data (seed) from API: {e}")
+        return False
+
+    def save_weather_data_burst(self):
+        try:
+            response = self.api_client.get_weather_data_burst()
+            if response is not None:
+                api_data = response.json()
+                return self._add_version_to_json(api_data, self.WEATHER_BURST_JSON, "weather")
+        except Exception as e:
+            print(
+                f"Data Manager: Error fetching weather data (burst) from API: {e}")
+        return False
 
     def load_city(self):
         try:  # Try to get map data from API
             response = self.api_client.get_map_data()
             if response is not None:
                 data = response.json()
+                self._add_version_to_json(data, self.MAP_JSON, "map")
                 if "data" in data:
                     return data["data"]  # Returns the array directly
                 return data
@@ -157,7 +195,7 @@ class DataManager:
                             key=lambda x: tuple(
                                 map(int, x["api_version"].split('.')))
                         )
-                    return latest_version["data"]
+                        return latest_version["data"]
 
             except Exception as e:
                 print(f"Data Manager: Error reading local map file: {e}")
@@ -172,6 +210,21 @@ class DataManager:
             response = self.api_client.get_jobs_data()
             if response is not None:
                 data = response.json()
+
+                if isinstance(data, dict) and "data" in data and "version" in data:
+                    # Wrap the structure to match expected format
+                    wrapped_data = {
+                        "data": {
+                            "version": data.get("version", "1.0"),
+                            "jobs": data.get("data", [])
+                        }
+                    }
+                    self._add_version_to_json(
+                        wrapped_data, self.JOBS_JSON, "jobs")
+                else:
+                    # If API returns different structure
+                    self._add_version_to_json(data, self.JOBS_JSON, "jobs")
+
                 if "data" in data:
                     return data["data"]  # Returns the array directly
                 return data
@@ -207,14 +260,17 @@ class DataManager:
 
     def load_weather(self):
         try:  # Try to get weather data from API
-            response = self.api_client.get_weather_data()
+            response = self.api_client.get_weather_data_seed()
             if response is not None:
                 data = response.json()
+                self._add_version_to_json(
+                    data, self.WEATHER_JSON, "weather seed")
                 if "data" in data:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Data Manager: Error fetching weather data from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather (seed) data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_JSON.exists():
@@ -227,11 +283,47 @@ class DataManager:
                             key=lambda x: tuple(
                                 map(int, x["api_version"].split('.')))
                         )
-                    return latest_version["data"]
+                        return latest_version["data"]
             except Exception as e:
-                print(f"Data Manager: Error reading local weather file: {e}")
+                print(
+                    f"Data Manager: Error reading local weather (seed) file: {e}")
                 return None
         else:
             print(
-                f"Data Manager: Local weather file not found: {self.WEATHER_JSON}")
+                f"Data Manager: Local weather (seed) file not found: {self.WEATHER_JSON}")
+            return None
+
+    def load_weather_burst(self):
+        try:  # Try to get weather data from API
+            response = self.api_client.get_weather_data_burst()
+            if response is not None:
+                data = response.json()
+                self._add_version_to_json(
+                    data, self.WEATHER_BURST_JSON, "weather burst")
+                if "data" in data:
+                    return data["data"]  # Returns the array directly
+                return data
+        except Exception as e:
+            print(
+                f"Data Manager: Error fetching weather (burst) data from API: {e}")
+
+        # Fallback: load from local JSON
+        if self.WEATHER_BURST_JSON.exists():
+            try:
+                with open(self.WEATHER_BURST_JSON, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if "versions" in data and data["versions"]:
+                        latest_version = max(
+                            data["versions"],
+                            key=lambda x: tuple(
+                                map(int, x["api_version"].split('.')))
+                        )
+                        return latest_version["data"]
+            except Exception as e:
+                print(
+                    f"Data Manager: Error reading local weather (burst) file: {e}")
+                return None
+        else:
+            print(
+                f"Data Manager: Local weather (burst) file not found: {self.WEATHER_BURST_JSON}")
             return None
