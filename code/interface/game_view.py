@@ -86,11 +86,15 @@ class GameView(BaseView):
 
                 # Intentar mover el jugador
                 if (new_x, new_y) != (self.player.x, self.player.y):
-                    success = self.player.move_to(new_x, new_y, self.city)
+                    success = self.player.move_to(
+                        new_x, new_y, self.city, self.game.get_weather())
                     if success:
-                        print(f"Jugador se movió a ({new_x}, {new_y})")
+                        print(
+                            f"{self.player.get_speed_info(self.game.get_weather(), self.city)}")
+                        self.game.get_weather().next_weather()
+                        print(f"Player moved to ({new_x}, {new_y})")
                     else:
-                        print(f"No se puede mover a ({new_x}, {new_y})")
+                        print(f"Cannot move to ({new_x}, {new_y})")
 
     def draw(self, screen):
         screen.fill(self.window.colors['BLACK'])

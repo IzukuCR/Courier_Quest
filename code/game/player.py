@@ -23,6 +23,17 @@ class Player:
         # Load sprites
         self.load_sprites()
 
+        self.stamina = 100  # Player stamina
+        self.reputation = 70  # Player reputation
+        self.streak = 0  # Player streak
+        self.weight = 8  # Current weight carried
+        self.base_speed = 3.0  # v0 = 3 tiles/seg
+        self.current_speed = 3.0  # Current speed (modified by conditions)
+        self.resistance_state = "tired"  # "normal", "tired", "exhausted"
+
+        # Update speed based on initial stats
+        self.update_move_speed()
+
     def load_sprites(self):
 
         sprite_files = {
@@ -98,28 +109,113 @@ class Player:
 
         return surface
 
-    def move_to(self, new_x, new_y, city):
+    def move_to(self, new_x, new_y, city, weather=None):
 
-        # Check if the new position is valid and not blocked
-        if city.is_valid_position(new_x, new_y) and not city.is_blocked(new_x, new_y):
-            if not self.is_moving:  # Only if not already moving
-                self.target_x = new_x
-                self.target_y = new_y
+        if not self.is_moving:  # Solo si no se está moviendo
+
+            # Calcular velocidad actual
+            self.current_speed = self.calculate_speed(
+                weather, city, self.x, self.y)
+
+            # Si velocidad es 0 (exhausto), no puede moverse
+            if self.current_speed <= 0:
+                print("Player is exhausted - cannot move!")
+                return False
+
+            # ✅ NUEVO: Calcular cuántas casillas puede moverse basado en velocidad
+            max_distance = self.calculate_movement_distance()
+
+            # Calcular dirección del movimiento
+            direction_x = 1 if new_x > self.x else (
+                -1 if new_x < self.x else 0)
+            direction_y = 1 if new_y > self.y else (
+                -1 if new_y < self.y else 0)
+
+            # ✅ NUEVO: Encontrar la posición final válida dentro del rango
+            final_x, final_y = self.find_final_position(
+                self.x, self.y, direction_x, direction_y, max_distance, city
+            )
+
+            # Solo moverse si hay cambio de posición
+            if final_x != self.x or final_y != self.y:
+
+                distance_moved = max(abs(final_x - self.x),
+                                     abs(final_y - self.y))
+
+                self.target_x = final_x
+                self.target_y = final_y
                 self.is_moving = True
-                self.move_progress = 0.0  # Reset movement progress
+                self.move_progress = 0.0
 
-                # Determine direction for animation
-                if new_x > self.x:
+                # Actualizar move_speed basado en distancia
+                self.update_move_speed_for_distance()
+
+                # Update stamina after move
+                self.update_stamina_after_move(distance_moved, weather, city)
+
+                # Determinar dirección para animación
+                if final_x > self.x:
                     self.current_direction = "RIGHT"
-                elif new_x < self.x:
+                elif final_x < self.x:
                     self.current_direction = "LEFT"
-                elif new_y > self.y:
+                elif final_y > self.y:
                     self.current_direction = "DOWN"
-                elif new_y < self.y:
+                elif final_y < self.y:
                     self.current_direction = "UP"
 
                 return True
+
         return False
+
+    def calculate_movement_distance(self):
+        # High speed = more tiles per movement
+
+        if self.current_speed < 1.0:
+            return 0
+        elif self.current_speed >= 1.0 and self.current_speed < 2.0:
+            return 1  # Normal speed = 1 tile
+        elif self.current_speed >= 2.0 and self.current_speed < 3.0:
+            return 2  # High speed = 2 tiles
+        elif self.current_speed >= 3.0 and self.current_speed < 4.0:
+            return 3  # Very high speed = 3 tiles
+        elif self.current_speed >= 4.0 and self.current_speed < 5.0:
+            return 4  # Extreme speed = 4 tiles
+        else:
+            # Max 5 tiles per movement
+            return min(5, int(self.current_speed // 3))
+
+    def find_final_position(self, start_x, start_y, dir_x, dir_y, max_distance, city):
+
+        current_x, current_y = start_x, start_y
+
+        for step in range(1, max_distance + 1):  # From 1 to max_distance
+            next_x = start_x + (dir_x * step)
+            next_y = start_y + (dir_y * step)
+
+            # Check if next position is valid and not blocked
+            if (city.is_valid_position(next_x, next_y) and
+                    not city.is_blocked(next_x, next_y)):
+                current_x, current_y = next_x, next_y
+            else:
+                # If blocked, stop at previous position
+                break
+
+        return current_x, current_y
+
+    def update_move_speed_for_distance(self):
+
+        # Calculate movement distance
+        distance = max(abs(self.target_x - self.x),
+                       abs(self.target_y - self.y))
+
+        if distance > 0 and self.current_speed > 0:
+            # Time corresponding to distance and speed
+            # High speed + long distance = same time as normal speed + short distance
+            base_time = distance / self.current_speed  # Time in seconds
+            # Convert to progress per frame
+            self.move_speed = min(1.0, 1.0 / (base_time * 60))
+        else:
+            self.move_speed = 0.0
 
     def update(self, delta_time=1/60):
         # update movement and animation
@@ -176,3 +272,157 @@ class Player:
         return (city.is_valid_position(new_x, new_y) and
                 not city.is_blocked(new_x, new_y) and
                 not self.is_moving)
+
+    def calculate_speed(self, weather, city, current_tile_x=None, current_tile_y=None):
+
+        # v0 = base speed = 3.0
+        v0 = self.base_speed
+
+        # Mclima = weather speed multiplier
+        mclima = weather.get_speed_multiplier() if weather else 1.0
+
+        # Mpeso = max(0.8, 1 - 0.03 * weight)
+        mpeso = max(0.8, 1.0 - 0.03 * self.weight)
+
+        # Mrep = 1.03 if reputation ≥ 90, else 1.0
+        mrep = 1.03 if self.reputation >= 90 else 1.0
+
+        # Mresistencia based on resistance state
+        resistance_multipliers = {
+            "normal": 1.0,
+            "tired": 0.8,
+            "exhausted": 0.0
+        }
+        mresistencia = resistance_multipliers.get(self.resistance_state, 1.0)
+
+        # Surface_weight of current tile
+        surface_weight = 1.0  # Default
+        if city and current_tile_x is not None and current_tile_y is not None:
+            surface_weight = city.get_surface_weight(
+                current_tile_x, current_tile_y)
+
+        # Final speed calculation
+        final_speed = v0 * mclima * mpeso * mrep * mresistencia * surface_weight
+
+        return max(0.0, final_speed)  # Dont allow negative speed
+
+    def update_move_speed(self):
+        """Actualizar move_speed interno basado en current_speed"""
+        # Convertir celdas/seg a move_progress por frame
+        # move_speed controla qué tan rápido se completa el movimiento (0.0-1.0 por frame)
+        if self.current_speed > 0:
+            # A 60 FPS, 1 celda/seg = 1/60 de progreso por frame
+            self.move_speed = min(
+                1.0, self.current_speed / 60.0 * 10)  # Ajustar factor
+        else:
+            self.move_speed = 0.0
+
+    def set_weight(self, new_weight):
+        self.weight = new_weight  # Set weight directly
+
+    def increase_weight(self, amount):
+        self.weight += amount  # Increase weight by amount
+
+    def decrease_weight(self, amount):
+        self.weight = max(0, self.weight - amount)  # Dont go below 0
+
+    def set_resistance_state(self, state):
+        if state in ["normal", "tired", "exhausted"]:  # Valid states
+            self.resistance_state = state  # Set state
+
+    def get_speed_info(self, weather=None, city=None):
+        """Obtener información detallada de velocidad para debug"""
+        speed = self.calculate_speed(weather, city, self.x, self.y)
+
+        mclima = weather.get_speed_multiplier() if weather else 1.0
+        mpeso = max(0.8, 1.0 - 0.03 * self.weight)
+        mrep = 1.03 if self.reputation >= 90 else 1.0
+        mresistencia = {"normal": 1.0, "tired": 0.8,
+                        "exhausted": 0.0}.get(self.resistance_state, 1.0)
+        surface_weight = city.get_surface_weight(
+            self.x, self.y) if city else 2.0
+
+        distance = self.calculate_movement_distance()
+
+        return {
+            "final_speed": speed,
+            "movement_distance": distance,
+            "base_speed": self.base_speed,
+            "weather_multiplier": mclima,
+            "weight_multiplier": mpeso,
+            "reputation_multiplier": mrep,
+            "resistance_multiplier": mresistencia,
+            "surface_multiplier": surface_weight,
+            "current_weight": self.weight,
+            "reputation": self.reputation,
+            "resistance_state": self.resistance_state
+        }
+
+    def calculate_stamina_loss(self, distance_moved=1, weather=None, city=None):
+        # Base stamina loss per cell moved
+        base_stamina_loss = -0.5 * distance_moved
+
+        # If weight > 3, additional penalty per cell (-0.2 per extra weight unit)
+        weight_penalty = 0.0
+        if self.weight > 3:
+            weight_penalty = -0.2 * (self.weight - 3) * distance_moved
+
+        # Weather impact on stamina
+        weather_penalty = 0.0
+        if weather and hasattr(weather, 'current_condition'):
+            weather_impacts = {
+                "rain": -0.1 * distance_moved,
+                "rain_light": -0.1 * distance_moved,
+                "wind": -0.1 * distance_moved,
+                "storm": -0.3 * distance_moved,
+                "heat": -0.2 * distance_moved,
+                "cold": -0.1 * distance_moved,
+            }
+            weather_penalty = weather_impacts.get(
+                weather.current_condition, 0.0)
+
+        # Total stamina loss
+        total_stamina_loss = base_stamina_loss + weight_penalty + weather_penalty
+
+        return total_stamina_loss
+
+    def update_stamina_after_move(self, distance_moved=1, weather=None, city=None):
+        # Calculate stamina loss based on distance moved and conditions
+        stamina_loss = self.calculate_stamina_loss(
+            distance_moved, weather, city)  # get stamina loss
+
+        # stamina_loss is negative
+        self.stamina = max(0, min(100, self.stamina + stamina_loss))
+
+        # Update resistance state based on new stamina
+        if self.stamina >= 70:
+            self.set_resistance_state("normal")
+        elif self.stamina >= 30:
+            self.set_resistance_state("tired")
+        else:
+            self.set_resistance_state("exhausted")
+
+        # Debug info
+        print(
+            f"Stamina: {self.stamina:.1f} (lost {abs(stamina_loss):.1f}) - State: {self.resistance_state}")
+
+    def recover_stamina(self, amount=5):
+        old_stamina = self.stamina
+
+        # Increase stamina by amount, capped at 100
+        self.stamina = max(0, min(100, self.stamina + amount))
+
+        # update resistance state
+        if self.stamina >= 70:
+            self.set_resistance_state("normal")
+        elif self.stamina >= 30:
+            self.set_resistance_state("tired")
+        else:
+            self.set_resistance_state("exhausted")
+
+        # Debug info
+        actual_increase = self.stamina - old_stamina
+        print(
+            f"Stamina increased by {actual_increase:.1f} → {self.stamina:.1f} - State: {self.resistance_state}")
+
+        return actual_increase

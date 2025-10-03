@@ -76,6 +76,14 @@ class City:
 
         return "\n".join(result)
 
+    def get_surface_weight(self, x, y):
+
+        tile_type = self.get_tile(x, y)
+        if tile_type and tile_type in self.legend:
+            tile_info = self.legend[tile_type]
+            return tile_info.get("surface_weight", 1.0)
+        return 1.0
+
     def __repr__(self):
         # Detailed representation of the City object.
         return f"City(version='{self.version}', size={self.width}x{self.height}, tiles={len(self.tiles)})"

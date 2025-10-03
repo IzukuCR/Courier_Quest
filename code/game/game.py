@@ -3,6 +3,7 @@ from ..core.city import City
 from .inventory import Inventory
 from .scoreboard import Scoreboard
 from .player import Player
+import pygame
 
 
 class Game:
@@ -21,7 +22,8 @@ class Game:
             self._data_manager = DataManager()  # Init data manager
             try:
                 self._city = City.from_data_manager()  # Load city from data manager
-                self._weather = Weather().load_weather()  # Load weather from data manager
+                self._weather = Weather()  # Load weather from data manager
+                weather_loaded = self._weather.load_weather()
                 self._inventory = Inventory().load_orders()  # Load inventory from data manager
             except Exception as e:
                 self._city = City([])
@@ -37,6 +39,8 @@ class Game:
             self._goal = self._city.goal if self._city else 0
 
             Game._initialized = True  # Prevent re-initialization
+
+            self.clock_ = pygame.time.Clock()
 
     def set_player_name(self, name):
         self._player_name = name
