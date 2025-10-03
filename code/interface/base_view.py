@@ -13,10 +13,10 @@ class BaseView:
         # Event handling
         pass
 
-    def update(self):
+    def update(self, delta_time: float):
         # Update view logic
         pass
 
     def draw(self, screen):
-        # Print elements on the screen
+        # Render elements on the screen
         pass

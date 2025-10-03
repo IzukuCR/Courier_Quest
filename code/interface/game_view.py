@@ -2,6 +2,8 @@ import pygame
 from .base_view import BaseView
 from ..game.game import Game
 
+HUD_X = 950
+
 
 class GameView(BaseView):
     def __init__(self):
@@ -28,12 +30,24 @@ class GameView(BaseView):
         }
 
         self.font = pygame.font.Font(None, 24)
+        self.big = pygame.font.Font(None, 32)
 
         # Load tile images
         self.load_tile_images()
 
-        # Player
-        self.player = self.game.get_player()  # Get player from game
+        # References
+        self.player = self.game.get_player()
+        self.weather = self.game.get_weather()
+        self.jobs = self.game.get_jobs()
+        self.pinv = self.game.get_player_inventory()
+
+        # Toast
+        self.toast = ""
+        self.toast_timer = 0.0
+
+        # Order selection
+        self.jobs._selected_index = -1
+        self.selected = self.jobs.cycle_selection(self.game.get_game_time())
 
     def load_tile_images(self):
 
@@ -50,7 +64,7 @@ class GameView(BaseView):
                 print(
                     f"DEBUG TILES - Original '{tile_type}' size: {original_size}")
 
-                # VERIFICAR: ¿Se está escalando correctamente?
+                # VERIFY: Is it scaling correctly?
                 scaled_image = pygame.transform.scale(
                     image, (self.cell_size, self.cell_size))
                 final_size = scaled_image.get_size()
@@ -66,102 +80,146 @@ class GameView(BaseView):
             self.tile_images = None
 
     def handle_event(self, event):
-        if event.type == pygame.KEYDOWN:  # Key pressed
-            if event.key == pygame.K_ESCAPE:  # Escape to go back to menu
-                from .menu_view import MenuView
-                menu_view = MenuView()
-                self.window.show_view(menu_view)
-                # PLAYER CONTROLS
-            elif self.player:
-                new_x, new_y = self.player.x, self.player.y  # Current position
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                self.game.toggle_pause()
+                return
 
-                if event.key == pygame.K_UP or event.key == pygame.K_w:  # W or Up
+            if self.game.is_paused():
+                return  # ignore inputs while paused
+
+            if event.key == pygame.K_TAB:
+                self.selected = self.jobs.cycle_selection(self.game.get_game_time())
+                if self.selected:
+                    self.toast, self.toast_timer = f"Selected {self.selected.id}", 2.0
+
+            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                if self.selected:
+                    if self.pinv.accept(self.selected, self.game.get_game_time()):
+                        self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
+                    else:
+                        self.toast, self.toast_timer = f"Could not accept {self.selected.id}", 2.0
+
+            elif self.player:
+                new_x, new_y = self.player.x, self.player.y
+                if event.key in (pygame.K_UP, pygame.K_w):
                     new_y -= 1
-                elif event.key == pygame.K_DOWN or event.key == pygame.K_s:  # S or Down
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
                     new_y += 1
-                elif event.key == pygame.K_LEFT or event.key == pygame.K_a:  # A or Left
+                elif event.key in (pygame.K_LEFT, pygame.K_a):
                     new_x -= 1
-                elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:  # D or Right
+                elif event.key in (pygame.K_RIGHT, pygame.K_d):
                     new_x += 1
 
                 # Intentar mover el jugador
                 if (new_x, new_y) != (self.player.x, self.player.y):
-                    success = self.player.move_to(
-                        new_x, new_y, self.city, self.game.get_weather())
-                    if success:
-                        print(
-                            f"{self.player.get_speed_info(self.game.get_weather(), self.city)}")
-                        self.game.get_weather().next_weather()
-                        print(f"Player moved to ({new_x}, {new_y})")
-                    else:
-                        print(f"Cannot move to ({new_x}, {new_y})")
+                    ok = self.player.move_to(new_x, new_y, self.city, self.weather)
+                    if not ok:
+                        self.toast, self.toast_timer = "You can't move there", 1.5
+
 
     def draw(self, screen):
         screen.fill(self.window.colors['BLACK'])
-
-        # Draw map
-        self.draw_map(screen)
-
-        # Draw UI
-        self.draw_ui(screen)
-
-        # Draw player
+        self._draw_map(screen)
         if self.player:
-            self.player.draw(screen, self.cell_size,
-                             self.map_offset_x, self.map_offset_y)
+            self.player.draw(screen, self.cell_size, self.map_offset_x, self.map_offset_y)
 
-    def draw_map(self, screen):
+        self._draw_hud(screen)
+
+        # Pause overlay
+        if self.game.is_paused():
+            s = pygame.Surface((self.window.width, self.window.height), pygame.SRCALPHA)
+            s.fill((0, 0, 0, 160))
+            screen.blit(s, (0, 0))
+            txt = self.big.render("PAUSED - ESC to continue", True, self.window.colors['WHITE'])
+            screen.blit(txt, txt.get_rect(center=(self.window.width//2, self.window.height//2)))
+
+        # Toast (brief messages)
+        if self.toast:
+            t = self.font.render(self.toast, True, (255, 255, 0))
+            screen.blit(t, (HUD_X, 700))
+
+
+    def _draw_map(self, screen):
         if not self.matrix:
             return
 
-        for row_idx, row in enumerate(self.matrix):
-            for col_idx, cell in enumerate(row):
-                x = self.map_offset_x + col_idx * self.cell_size
-                y = self.map_offset_y + row_idx * self.cell_size
-
-                # Draw tile image if available, else color
+        # tiles
+        for r, row in enumerate(self.matrix):
+            for c, cell in enumerate(row):
+                x = self.map_offset_x + c * self.cell_size
+                y = self.map_offset_y + r * self.cell_size
                 if self.tile_images and cell in self.tile_images:
-                    tile_image = self.tile_images[cell]
-                    screen.blit(tile_image, (x, y))
-
-                    rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
-                    border_color = (80, 80, 80)  # Medium gray
-
-                    # Only draw bottom and right borders to avoid double lines
-                    pygame.draw.line(screen, border_color,
-                                     (x + self.cell_size - 1, y),
-                                     (x + self.cell_size - 1, y + self.cell_size - 1))
-                    pygame.draw.line(screen, border_color,
-                                     (x, y + self.cell_size - 1),
-                                     (x + self.cell_size - 1, y + self.cell_size - 1))
-
+                    screen.blit(self.tile_images[cell], (x, y))
+                    pygame.draw.rect(screen, (0, 0, 0), (x, y, self.cell_size, self.cell_size), 1)
                 else:
-                    # Default to color if no image
-                    color = self.tile_colors.get(
-                        cell, self.window.colors['WHITE'])
+                    color = self.tile_colors.get(cell, self.window.colors["WHITE"])
                     rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
                     pygame.draw.rect(screen, color, rect)
                     pygame.draw.rect(screen, (0, 0, 0), rect, 1)
+        # pickup / dropoff markers (internal helper using self/screen)
+        def draw_marker(pos, col):
+            if not pos:
+                return
+            cx = self.map_offset_x + pos[0] * self.cell_size
+            cy = self.map_offset_y + pos[1] * self.cell_size
+            pygame.draw.rect(screen, col, pygame.Rect(cx, cy, self.cell_size, self.cell_size), 3)
 
-    def draw_ui(self, screen):
-        # Game UI elements
-        ui_x = 950  # Start UI at x=950
-        player_text = self.font.render(
-            f"Player: {self.player_name}", True, self.window.colors['WHITE'])
-        screen.blit(player_text, (ui_x, 50))
+        if self.pinv.active:
+            draw_marker(self.pinv.active.pickup, (0, 200, 255))
+            draw_marker(self.pinv.active.dropoff, (255, 200, 0))
+        elif self.selected:
+            draw_marker(self.selected.pickup, (0, 120, 200))
+            draw_marker(self.selected.dropoff, (200, 140, 0))
 
-        # Instructions
-        help_text = self.font.render(
-            "Press ESC to return to menu", True, self.window.colors['GRAY'])
-        screen.blit(help_text, (ui_x, 700))
+    def _draw_hud(self, screen):
+        x = HUD_X
+        white = self.window.colors['WHITE']
 
-    def update(self):
-        # Update game time
-        self.game.update_game_time(1/60)
+        # Time
+        t = self.game.get_game_time()
+        mins, secs = int(t//60), int(t%60)
+        screen.blit(self.big.render(f"Time {mins:02d}:{secs:02d}", True, white), (x, 40))
 
-        # Update player
+        # Weather
+        screen.blit(self.font.render(f"Weather: {self.weather.get_current_condition()}", True, white), (x, 80))
+
+        # Orders
+        screen.blit(self.big.render("Orders", True, white), (x, 130))
+        sel = self.selected.id if self.selected else "-"
+        act = self.pinv.active.id if self.pinv.active else "-"
+        screen.blit(self.font.render(f"Selected: {sel}", True, white), (x, 170))
+        screen.blit(self.font.render(f"Active: {act}", True, white), (x, 195))
+
+        # Capacity
+        screen.blit(self.font.render(
+            f"Capacity: {self.pinv.carried_weight():.1f} / {self.pinv.capacity_weight:.1f}",
+            True, white), (x, 225))
+
+        # Brief list of available orders
+        y = 260
+        screen.blit(self.font.render("Available:", True, self.window.colors['GRAY']), (x, y))
+        y += 20
+        for o in self.jobs.selectable(self.game.get_game_time())[:6]:
+            tag = "<" if self.selected and self.selected.id == o.id else " "
+            left = f"{tag} {o.id} w{int(o.weight)} pr{int(o.priority)}"
+            screen.blit(self.font.render(left, True, white), (x, y))
+            y += 18
+
+    def update(self, delta_time: float):
+        self.game.update(delta_time)
+
         if self.player:
-            self.player.update(1/60)
+            self.player.update(delta_time)
+            if not self.player.is_moving:
+                msg = self.game.on_player_moved(self.player.x, self.player.y)
+                if msg:
+                    self.toast, self.toast_timer = msg, 2.0
+
+        if self.toast_timer > 0:
+            self.toast_timer -= delta_time
+            if self.toast_timer <= 0:
+                self.toast = ""
 
     def on_show(self):
         print("Game view shown")

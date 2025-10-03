@@ -1,6 +1,6 @@
 import pygame
 
-from code.game import game
+
 from .base_view import BaseView
 
 
@@ -49,7 +49,7 @@ class PlayerSetupView(BaseView):
                         self.handle_button_click(button_key)
                         break
 
-    def update(self):
+    def update(self, delta_time: float):
         # Cursor blinking
         self.cursor_timer += 1
         if self.cursor_timer >= 30:  # 30 frames = 0.5 seconds at 60 FPS
@@ -103,11 +103,10 @@ class PlayerSetupView(BaseView):
         rect = button_data["rect"]
         text = button_data["text"]
 
-        # Colors based on hover state (event)
+        # Colors based on hover state
         if self.hovered_button == button_key:
             if button_key == "continue":
-                bg_color = self.window.colors['GREEN'] if self.window.colors.get(
-                    'GREEN') else (0, 150, 0)
+                bg_color = (self.window.colors.get('GREEN', (0, 150, 0)))
             else:
                 bg_color = self.window.colors['BLUE']
             border_color = self.window.colors['WHITE']
@@ -141,13 +140,11 @@ class PlayerSetupView(BaseView):
         self.window.show_view(menu_view)  # Switch to menu view
 
     def continue_to_game(self):
-
         from ..game.game import Game
         game = Game()
         game.set_player_name(self.player_name)  # Set player name
 
         game.start_new_game()  # Reset game state for new game
 
-        from .game_view import GameView
-        game_view = GameView()
-        self.window.show_view(game_view)  # Switch to game view
+        from .instructions_view import InstructionsView
+        self.window.show_view(InstructionsView())  # Switch to instructions view

@@ -85,12 +85,12 @@ class DataManager:
 
                         # Compare content, not just version
                         if existing_content == new_content:
-                            print(
-                                f"{data_type.capitalize()} version {api_version} with same content already exists")
+                            print(f"{data_type.capitalize()} version {api_version} "
+                                  f"with same content already exists")
                             should_save = False
                         else:
-                            print(
-                                f"{data_type.capitalize()} version {api_version} exists but content changed - updating")
+                            print(f"{data_type.capitalize()} version {api_version} "
+                                  f"exists but content changed - updating")
                             # Remove old version to replace it
                             file_data["versions"].remove(existing_version)
                         break
@@ -119,8 +119,7 @@ class DataManager:
                 with open(json_file_path, "w", encoding="utf-8") as f:
                     json.dump(file_data, f, indent=4, ensure_ascii=False)
 
-                print(
-                    f"{data_type.capitalize()} version {api_version} saved successfully")
+                print(f"{data_type.capitalize()} version {api_version} saved successfully")
                 return True
             else:
                 print(f"{data_type.capitalize()} - no changes detected")
@@ -170,8 +169,7 @@ class DataManager:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_JSON, "weather")
         except Exception as e:
-            print(
-                f"Data Manager: Error fetching weather data (seed) from API: {e}")
+            print(f"Data Manager: Error fetching weather data (seed) from API: {e}")
         return False
 
     def save_weather_data_burst(self):
@@ -181,8 +179,7 @@ class DataManager:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_BURST_JSON, "weather")
         except Exception as e:
-            print(
-                f"Data Manager: Error fetching weather data (burst) from API: {e}")
+            print(f"Data Manager: Error fetching weather data (burst) from API: {e}")
         return False
 
     def load_city(self):
@@ -250,7 +247,7 @@ class DataManager:
         except Exception as e:
             print(f"Data Manager: Error fetching jobs data from API: {e}")
 
-    # Fallback: load from local JSON
+        # Fallback: load from local JSON
         if self.JOBS_JSON.exists():
             try:
                 with open(self.JOBS_JSON, "r", encoding="utf-8") as f:
@@ -291,8 +288,7 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(
-                f"Data Manager: Error fetching weather (seed) data from API: {e}")
+            print(f"Data Manager: Error fetching weather (seed) data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_JSON.exists():
@@ -314,12 +310,10 @@ class DataManager:
                     # Fallback: assume all content is data
                     return data
             except Exception as e:
-                print(
-                    f"Data Manager: Error reading local weather (seed) file: {e}")
+                print(f"Data Manager: Error reading local weather (seed) file: {e}")
                 return None
         else:
-            print(
-                f"Data Manager: Local weather (seed) file not found: {self.WEATHER_JSON}")
+            print(f"Data Manager: Local weather (seed) file not found: {self.WEATHER_JSON}")
             return None
 
     def load_weather_burst(self):
@@ -333,8 +327,7 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(
-                f"Data Manager: Error fetching weather (burst) data from API: {e}")
+            print(f"Data Manager: Error fetching weather (burst) data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_BURST_JSON.exists():
@@ -342,7 +335,7 @@ class DataManager:
                 with open(self.WEATHER_BURST_JSON, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 if "versions" in data and data["versions"]:
-                    #  Versioned structure
+                    # Versioned structure
                     latest_version = max(
                         data["versions"],
                         key=lambda x: tuple(
@@ -350,16 +343,14 @@ class DataManager:
                     )
                     return latest_version["data"]
                 elif "data" in data:
-                    #  Old direct structure
+                    # Old direct structure
                     return data["data"]
                 else:
                     # Fallback: assume all content is data
                     return data
             except Exception as e:
-                print(
-                    f"Data Manager: Error reading local weather (burst) file: {e}")
+                print(f"Data Manager: Error reading local weather (burst) file: {e}")
                 return None
         else:
-            print(
-                f"Data Manager: Local weather (burst) file not found: {self.WEATHER_BURST_JSON}")
+            print(f"Data Manager: Local weather (burst) file not found: {self.WEATHER_BURST_JSON}")
             return None

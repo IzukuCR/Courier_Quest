@@ -234,6 +234,4 @@ class Weather:
 
         return None
 
-    def get_speed_multiplier(self):
-        # Default to 1.0 if condition not found
-        return self.SPEED_MULTIPLIERS.get(self.current_condition, 1.0)
+

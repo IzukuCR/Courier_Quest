@@ -14,7 +14,7 @@ class MainWindow:
         self.current_view = None
         self.running = True
 
-        # Colores básicos
+        # Basic colors
         self.colors = {
             'WHITE': (255, 255, 255),
             'BLACK': (0, 0, 0),
@@ -34,6 +34,7 @@ class MainWindow:
     def run(self):
         # Main loop
         while self.running:
+            dt = self.clock.tick(60) / 1000.0  # seconds since last frame
             # Event handling
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -43,7 +44,7 @@ class MainWindow:
 
             # Update view
             if self.current_view:
-                self.current_view.update()
+                self.current_view.update(dt)
                 self.current_view.draw(self.screen)
 
             # Refresh window

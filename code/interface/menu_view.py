@@ -79,7 +79,7 @@ class MenuView(BaseView):
         rect = button_data["rect"]
         text = button_data["text"]
 
-        # color based on hover state
+        # Color based on hover state
         if self.hovered_button == button_key:
             bg_color = self.window.colors['BLUE']
             border_color = self.window.colors['WHITE']
