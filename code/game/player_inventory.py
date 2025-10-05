@@ -51,14 +51,14 @@ class PlayerInventory:
 
         if self.active.is_expired(game_time_s) and self.active.state not in ("delivered", "cancelled"):
             self.active.state = "expired"
-            return f"{self.active.id} expired."
+            return f"Priority {self.active.priority} job expired."
 
         # Pickup
         if self.active.state == "accepted" and self.active.at_pickup(px, py):
             if self.carried_weight() + self.active.weight <= self.capacity_weight:
                 self.active.state = "carrying"
                 self.active.picked_at = game_time_s
-                return f"{self.active.id}: picked up."
+                return f"Priority {self.active.priority} package picked up."
             else:
                 return "Overweight! You can't pick up yet."
 
@@ -81,7 +81,11 @@ class PlayerInventory:
                 if hasattr(player, 'idle_time'):
                     player.idle_time = 0.0
 
-            return f"{done.id} delivered (+{done.payout:.0f})."
+            # Add to scoreboard
+            if hasattr(game, '_scoreboard'):
+                game._scoreboard.add_score(int(done.payout))
+
+            return f"Priority {done.priority} job completed! +${done.payout:.0f}"
 
         return None
 

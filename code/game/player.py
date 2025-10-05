@@ -619,3 +619,15 @@ class Player:
     def get_undo_info(self) -> dict:
         """Get undo system information for UI display"""
         return self.undo_system.get_info()
+
+    def get_reputation(self) -> float:
+        """Get current reputation value"""
+        return self.reputation
+
+    def set_reputation(self, value: float):
+        """Set reputation value (0-100)"""
+        self.reputation = max(0.0, min(100.0, value))
+
+    def add_reputation(self, amount: float):
+        """Add to reputation value"""
+        self.reputation = max(0.0, min(100.0, self.reputation + amount))

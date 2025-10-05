@@ -7,8 +7,8 @@ class JobsInventory:
     def __init__(self, weather_start_iso: Optional[str]):
         self._orders: List[Order] = []
         self._selected_index: int = 0
-        self._scroll_offset: int = 0  # New: for scrolling through orders
-        self._orders_per_page: int = 8  # New: orders shown per page
+        self._scroll_offset: int = 0  # Top visible item index
+        self._visible_count: int = 3  # How many jobs to show at once
         self._load_orders(weather_start_iso)
 
     def _load_orders(self, weather_start_iso: Optional[str]) -> None:
@@ -63,85 +63,106 @@ class JobsInventory:
 
         return available_orders
 
-    def get_selectable_page(self, t: float) -> List[Order]:
-        """Get current page of selectable orders"""
+    def get_visible_orders(self, t: float) -> List[Order]:
+        """Get currently visible orders based on scroll offset"""
         selectable_orders = self.selectable(t)
         start_idx = self._scroll_offset
-        end_idx = start_idx + self._orders_per_page
+        end_idx = start_idx + self._visible_count
         return selectable_orders[start_idx:end_idx]
 
     def get_scroll_info(self, t: float) -> dict:
         """Get scrolling information for UI"""
         selectable_orders = self.selectable(t)
         total_orders = len(selectable_orders)
-        total_pages = (total_orders + self._orders_per_page -
-                       1) // self._orders_per_page
-        current_page = (self._scroll_offset // self._orders_per_page) + 1
 
         return {
-            "current_page": current_page,
-            "total_pages": total_pages,
             "total_orders": total_orders,
-            "orders_per_page": self._orders_per_page,
+            "visible_count": self._visible_count,
             "scroll_offset": self._scroll_offset,
             "can_scroll_up": self._scroll_offset > 0,
-            "can_scroll_down": self._scroll_offset + self._orders_per_page < total_orders
+            "can_scroll_down": self._scroll_offset + self._visible_count < total_orders,
+            "selected_index": self._selected_index,
+            "selected_visible_index": self._selected_index - self._scroll_offset
         }
 
+    def _ensure_selected_visible(self, t: float):
+        """Ensure the selected item is visible by adjusting scroll offset"""
+        selectable_orders = self.selectable(t)
+        if not selectable_orders or self._selected_index < 0:
+            return
+
+        # Clamp selected index to valid range
+        self._selected_index = min(
+            self._selected_index, len(selectable_orders) - 1)
+
+        # If selected item is above visible area, scroll up
+        if self._selected_index < self._scroll_offset:
+            self._scroll_offset = self._selected_index
+
+        # If selected item is below visible area, scroll down
+        elif self._selected_index >= self._scroll_offset + self._visible_count:
+            self._scroll_offset = self._selected_index - self._visible_count + 1
+
+        # Ensure scroll offset doesn't go out of bounds
+        max_scroll = max(0, len(selectable_orders) - self._visible_count)
+        self._scroll_offset = max(0, min(self._scroll_offset, max_scroll))
+
+    def cycle_selection(self, t: float) -> Optional[Order]:
+        selectable_orders = self.selectable(t)
+        if not selectable_orders:
+            return None
+
+        # Move to next item
+        self._selected_index = (self._selected_index +
+                                1) % len(selectable_orders)
+
+        # Ensure the selected item is visible
+        self._ensure_selected_visible(t)
+
+        return selectable_orders[self._selected_index]
+
+    def cycle_selection_prev(self, t: float) -> Optional[Order]:
+        selectable_orders = self.selectable(t)
+        if not selectable_orders:
+            return None
+
+        # Move to previous item
+        self._selected_index = (self._selected_index -
+                                1) % len(selectable_orders)
+
+        # Ensure the selected item is visible
+        self._ensure_selected_visible(t)
+
+        return selectable_orders[self._selected_index]
+
+    def get_selected(self, t: float) -> Optional[Order]:
+        selectable_orders = self.selectable(t)
+        if not selectable_orders:
+            return None
+
+        # Ensure index is valid
+        self._selected_index = min(
+            self._selected_index, len(selectable_orders) - 1)
+        return selectable_orders[self._selected_index]
+
     def scroll_up(self, t: float) -> bool:
-        """Scroll up one page"""
+        """Manual scroll up"""
         if self._scroll_offset > 0:
-            self._scroll_offset = max(
-                0, self._scroll_offset - self._orders_per_page)
-            self._selected_index = 0  # Reset selection to first item
+            self._scroll_offset -= 1
             return True
         return False
 
     def scroll_down(self, t: float) -> bool:
-        """Scroll down one page"""
+        """Manual scroll down"""
         selectable_orders = self.selectable(t)
-        max_offset = max(0, len(selectable_orders) - self._orders_per_page)
+        max_scroll = max(0, len(selectable_orders) - self._visible_count)
 
-        if self._scroll_offset < max_offset:
-            self._scroll_offset = min(
-                max_offset, self._scroll_offset + self._orders_per_page)
-            self._selected_index = 0  # Reset selection to first item
+        if self._scroll_offset < max_scroll:
+            self._scroll_offset += 1
             return True
         return False
-
-    def cycle_selection(self, t: float) -> Optional[Order]:
-        page_orders = self.get_selectable_page(t)
-        if not page_orders:
-            return None
-        self._selected_index = (self._selected_index + 1) % len(page_orders)
-        return page_orders[self._selected_index]
-
-    def get_selected(self, t: float) -> Optional[Order]:
-        page_orders = self.get_selectable_page(t)
-        if not page_orders:
-            return None
-        self._selected_index = min(self._selected_index, len(page_orders) - 1)
-        return page_orders[self._selected_index]
 
     def mark_expired(self, t: float) -> None:
         for o in self._orders:
             if o.is_expired(t):
                 o.state = "expired"
-
-    def cycle_selection_prev(self, t: float) -> Optional[Order]:
-        page_orders = self.get_selectable_page(t)
-        if not page_orders:
-            return None
-        # Adjust index backwards
-        if self._selected_index <= 0:
-            self._selected_index = len(page_orders) - 1
-        else:
-            self._selected_index -= 1
-        return page_orders[self._selected_index]
-        return None
-        # Adjust index backwards
-        if self._selected_index <= 0:
-            self._selected_index = len(page_orders) - 1
-        else:
-            self._selected_index -= 1
-        return page_orders[self._selected_index]

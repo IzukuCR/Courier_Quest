@@ -164,24 +164,20 @@ class GameView(BaseView):
                     self.toast, self.toast_timer = f"Selected {self.selected.id}", 2.0
 
             elif event.key == pygame.K_e:
-                # Scroll down through orders (next page)
+                # Manual scroll down
                 if self.jobs.scroll_down(self.game.get_game_time()):
+                    # Update selection to match new visible area
                     self.selected = self.jobs.get_selected(
                         self.game.get_game_time())
-                    scroll_info = self.jobs.get_scroll_info(
-                        self.game.get_game_time())
-                    self.toast, self.toast_timer = f"Page {scroll_info['current_page']}/{scroll_info['total_pages']}", 1.5
 
             elif event.key == pygame.K_x:
-                # Scroll up through orders (previous page)
+                # Manual scroll up
                 if self.jobs.scroll_up(self.game.get_game_time()):
+                    # Update selection to match new visible area
                     self.selected = self.jobs.get_selected(
                         self.game.get_game_time())
-                    scroll_info = self.jobs.get_scroll_info(
-                        self.game.get_game_time())
-                    self.toast, self.toast_timer = f"Page {scroll_info['current_page']}/{scroll_info['total_pages']}", 1.5
 
-            elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            elif event.key == pygame.K_RETURN:
                 if self.selected:
                     if self.pinv.accept(self.selected, self.game.get_game_time()):
                         self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
@@ -351,18 +347,22 @@ class GameView(BaseView):
                                  (255, 255, 100), "dropoff")  # Light yellow
 
     def _draw_hud(self, screen):
-        # Dynamic HUD positioning (was fixed HUD_X)
+        # Dynamic HUD positioning
         x = self.window.hud_x
         white = self.window.colors['WHITE']
 
         # Scale spacing dynamically
         line_height = self.window.get_scaled_size(20)
-        section_spacing = self.window.get_scaled_size(50)
+        section_spacing = self.window.get_scaled_size(30)
 
-        # Define small_font early so it's available throughout the method
+        # Define fonts
         small_font = pygame.font.Font(None, max(14, int(line_height * 0.7)))
+        medium_font = pygame.font.Font(None, max(18, int(line_height * 0.9)))
 
-        # Time - now showing countdown from 10 minutes
+        # TOP SECTION - Time and Scoreboard (right aligned)
+        time_y = 20
+
+        # Time - countdown from 10 minutes
         remaining_time = self.game.get_game_time()
         mins = self.game.get_game_time_remaining_minutes()
         secs = self.game.get_game_time_remaining_seconds()
@@ -375,390 +375,377 @@ class GameView(BaseView):
         else:  # Normal - white
             time_color = white
 
-        time_text = f"Time {mins:02d}:{secs:02d}"
-        screen.blit(self.big.render(time_text, True, time_color), (x, 40))
+        time_text = f"Time : {mins:02d}:{secs:02d}"
+        screen.blit(self.big.render(time_text, True, time_color), (x, time_y))
 
-        # Time progress bar (optional visual indicator)
-        progress = self.game.get_game_time_progress()
-        bar_width = self.window.get_scaled_size(150)
-        bar_height = self.window.get_scaled_size(8)
-        bar_x = x
-        bar_y = 40 + self.window.get_scaled_size(35)
+        # Scoreboard (top right)
+        scoreboard_y = time_y
+        scoreboard_x = x + 200  # Offset to the right
+
+        scoreboard_title = self.font.render(
+            "Scoreboard", True, (0, 150, 255))  # Blue
+        screen.blit(scoreboard_title, (scoreboard_x, scoreboard_y))
+
+        score_value = self.game._scoreboard.get_score(
+        ) if hasattr(self.game, '_scoreboard') else 0
+        score_text = f"{score_value:04d}"
+        screen.blit(self.big.render(score_text, True, (0, 150, 255)),
+                    (scoreboard_x, scoreboard_y + 25))
+
+        # MIDDLE SECTION - Status bars (Reputation, Stamina)
+        status_y = time_y + 80
+
+        # Reputation bar
+        reputation_label = "Reputation"
+        screen.blit(self.font.render(reputation_label, True,
+                    (255, 255, 0)), (x, status_y))  # Yellow
+
+        # Reputation progress bar
+        reputation_value = getattr(
+            self.player, 'reputation', 70) if self.player else 70  # Default 70
+        reputation_bar_y = status_y + 25
+        bar_width = self.window.get_scaled_size(200)
+        bar_height = self.window.get_scaled_size(12)
 
         # Background bar
         pygame.draw.rect(screen, (60, 60, 60),
-                         (bar_x, bar_y, bar_width, bar_height))
+                         (x, reputation_bar_y, bar_width, bar_height))
 
-        # Progress bar (green to red based on time remaining)
-        if progress < 0.5:
-            bar_color = (0, 255, 0)  # Green
-        elif progress < 0.8:
-            bar_color = (255, 255, 0)  # Yellow
-        else:
-            bar_color = (255, 0, 0)  # Red
+        # Reputation progress (yellow/gold color)
+        reputation_progress = reputation_value / 100.0
+        reputation_width = int(bar_width * reputation_progress)
+        if reputation_width > 0:
+            pygame.draw.rect(screen, (255, 215, 0),
+                             (x, reputation_bar_y, reputation_width, bar_height))
 
-        progress_width = int(bar_width * progress)
-        pygame.draw.rect(screen, bar_color,
-                         (bar_x, bar_y, progress_width, bar_height))
+        # Stamina bar
+        stamina_y = reputation_bar_y + 40
+        screen.blit(self.font.render("Stamina", True, (0, 255, 0)),
+                    (x, stamina_y))  # Green
 
-        # Weather - enhanced with timing info and current condition display
-        weather_y = 40 + line_height * 4
-        current_condition = self.weather.get_current_condition()
+        stamina_bar_y = stamina_y + 25
 
-        # Color-code weather conditions for better visibility
-        weather_colors = {
-            "clear": (255, 255, 100),    # Yellow
-            "clouds": (150, 150, 150),   # Gray
-            "rain_light": (100, 150, 255),  # Light blue
-            "rain": (50, 100, 255),      # Blue
-            "storm": (255, 100, 100),    # Red
-            "fog": (200, 200, 200),      # Light gray
-            "wind": (150, 255, 150),     # Light green
-            "heat": (255, 150, 50),      # Orange
-            "cold": (150, 200, 255)      # Light blue
-        }
-
-        weather_color = weather_colors.get(current_condition, white)
-        weather_text = f"Weather: {current_condition.upper()}"
-        screen.blit(self.font.render(weather_text, True,
-                    weather_color), (x, weather_y))
-
-        # Add weather effect indicator
-        weather_indicator_y = weather_y + int(line_height * 0.7)
-
-        # Map weather to visual effect name
-        weather_mapping = {
-            "clear": "SUNNY RAYS",
-            "clouds": "GRAY OVERLAY",
-            "rain_light": "LIGHT RAIN",
-            "rain": "HEAVY RAIN",
-            "storm": "STORM RAIN",
-            "fog": "FOG PATCHES",
-            "wind": "WIND LINES",
-            "heat": "HEAT SHIMMER",
-            "cold": "SNOW FALL"
-        }
-
-        effect_name = weather_mapping.get(current_condition, "NO EFFECT")
-        effect_text = f"Effect: {effect_name}"
-        screen.blit(small_font.render(effect_text, True,
-                    (180, 180, 180)), (x, weather_indicator_y))
-
-        # Weather timing debug info (optional - can be removed in production)
-        weather_debug = self.game.get_weather_debug_info()
-        time_until_change = weather_debug["time_until_next_change"]
-
-        weather_timing_y = weather_y + line_height
-        if time_until_change > 0:
-            timing_text = f"Next change: {time_until_change:.1f}s"
-            timing_color = (
-                200, 200, 200) if time_until_change > 10 else (255, 200, 0)
-        else:
-            timing_text = "Weather changing..."
-            timing_color = (255, 100, 100)
-
-        screen.blit(self.font.render(timing_text, True,
-                    timing_color), (x, weather_timing_y))
-
-        # Weather burst indicator
-        weather_condition_data = self.game.get_weather_condition()
-        if weather_condition_data["has_active_burst"]:
-            burst_y = weather_timing_y + line_height
-            burst_remaining = weather_condition_data["burst_remaining_sec"]
-            burst_text = f"Burst: {burst_remaining}s left"
-            screen.blit(self.font.render(burst_text, True,
-                        (100, 255, 100)), (x, burst_y))
-            orders_y = burst_y + section_spacing
-        else:
-            orders_y = weather_timing_y + section_spacing
-
-        # Orders section (adjusted position)
-        screen.blit(self.big.render("Orders", True, white), (x, orders_y))
-
-        sel = self.selected.id if self.selected else "-"
-        act = self.pinv.active.id if self.pinv.active else "-"
-        screen.blit(self.font.render(
-            f"Selected: {sel}", True, white), (x, orders_y + line_height * 2))
-        screen.blit(self.font.render(
-            f"Active: {act}", True, white), (x, orders_y + line_height * 3))
-
-        # Capacity
-        capacity_y = orders_y + line_height * 4
-        screen.blit(self.font.render(
-            f"Capacity: {self.pinv.carried_weight():.1f} / {self.pinv.capacity_weight:.1f}",
-            True, white), (x, capacity_y))
-
-        # Player stamina information (if player exists)
-        stamina_y = capacity_y + line_height
         if self.player:
             stamina_info = self.player.get_stamina_info()
             stamina = stamina_info["stamina"]
-            resistance_state = stamina_info["resistance_state"]
-            stamina_percentage = int(stamina)
             is_in_recovery_mode = stamina_info["is_in_recovery_mode"]
-            recovery_threshold = stamina_info["recovery_threshold"]
 
-            # Stamina label and percentage text
-            if is_in_recovery_mode:
-                stamina_label = f"Stamina: {stamina_percentage}% ({resistance_state}) - RECOVERY MODE"
-                recovery_needed = max(0, recovery_threshold - stamina)
-                if recovery_needed > 0:
-                    stamina_label += f" (need +{recovery_needed:.0f})"
-            else:
-                stamina_label = f"Stamina: {stamina_percentage}% ({resistance_state})"
-
-            # Color based on stamina level and recovery mode
-            if is_in_recovery_mode:
-                stamina_color = (255, 100, 100)  # Bright red - recovery mode
-                bar_color = (255, 0, 0)  # Red for recovery bar
-            elif stamina > 30:
-                stamina_color = (0, 255, 0)  # Green - normal
-                bar_color = (0, 200, 0)  # Darker green for bar
-            elif stamina <= 30 and stamina > 0:
-                stamina_color = (255, 255, 0)  # Yellow - tired
-                bar_color = (200, 200, 0)  # Darker yellow for bar
-            else:
-                stamina_color = (255, 50, 50)  # Red - exhausted
-                bar_color = (200, 0, 0)  # Darker red for bar
-
-            # Draw stamina label
-            screen.blit(self.font.render(stamina_label,
-                        True, stamina_color), (x, stamina_y))
-
-            # Draw stamina progress bar
-            stamina_bar_y = stamina_y + int(line_height * 0.8)
-            stamina_bar_width = self.window.get_scaled_size(150)
-            stamina_bar_height = self.window.get_scaled_size(8)
-
-            # Background bar (dark gray)
+            # Background bar
             pygame.draw.rect(screen, (60, 60, 60),
-                             (x, stamina_bar_y, stamina_bar_width, stamina_bar_height))
+                             (x, stamina_bar_y, bar_width, bar_height))
 
-            # Stamina progress bar (colored based on state)
-            stamina_progress = stamina / 100.0  # Convert to 0.0-1.0 range
-            stamina_progress_width = int(stamina_bar_width * stamina_progress)
-            if stamina_progress_width > 0:  # Only draw if there's stamina
+            # Stamina progress bar color based on state
+            if is_in_recovery_mode:
+                bar_color = (255, 0, 0)  # Red for recovery
+            elif stamina > 30:
+                bar_color = (0, 255, 0)  # Green - normal
+            elif stamina > 0:
+                bar_color = (255, 255, 0)  # Yellow - tired
+            else:
+                bar_color = (255, 0, 0)  # Red - exhausted
+
+            stamina_progress = stamina / 100.0
+            stamina_width = int(bar_width * stamina_progress)
+            if stamina_width > 0:
                 pygame.draw.rect(screen, bar_color,
-                                 (x, stamina_bar_y, stamina_progress_width, stamina_bar_height))
+                                 (x, stamina_bar_y, stamina_width, bar_height))
 
             # Draw recovery threshold marker if in recovery mode
             if is_in_recovery_mode:
-                threshold_progress = recovery_threshold / 100.0
-                threshold_x = x + int(stamina_bar_width * threshold_progress)
+                threshold_progress = stamina_info["recovery_threshold"] / 100.0
+                threshold_x = x + int(bar_width * threshold_progress)
                 # Draw vertical line at threshold
                 pygame.draw.line(screen, (255, 255, 255),
                                  (threshold_x, stamina_bar_y),
-                                 (threshold_x, stamina_bar_y + stamina_bar_height + 2), 3)
+                                 (threshold_x, stamina_bar_y + bar_height + 2), 2)
 
-            # Show recovery indicator if player is idle and can recover
-            current_y = stamina_bar_y + \
-                stamina_bar_height + int(line_height * 0.3)
-            if stamina_info["is_recovering"]:
-                time_to_recovery = stamina_info["time_to_next_recovery"]
-                if is_in_recovery_mode:
-                    recovery_text = f"Recovering... {time_to_recovery:.1f}s (CANNOT MOVE)"
-                    text_color = (255, 100, 100)
+            # Recovery status message below stamina bar
+            recovery_status_y = stamina_bar_y + bar_height + 5
+            recovery_threshold = stamina_info["recovery_threshold"]
+
+            if is_in_recovery_mode:
+                # Player is in recovery mode - cannot move until threshold is reached
+                recovery_needed = max(0, recovery_threshold - stamina)
+                if recovery_needed > 0:
+                    # Still recovering
+                    recovery_message = f"RECOVERY MODE - Need +{recovery_needed:.0f} stamina to move"
+                    message_color = (255, 100, 100)  # Bright red
                 else:
-                    recovery_text = f"Recovering in {time_to_recovery:.1f}s"
-                    text_color = (100, 255, 100)
-                screen.blit(small_font.render(recovery_text,
-                            True, text_color), (x, current_y))
-                available_orders_y = current_y + line_height
+                    # Threshold reached, can move again
+                    recovery_message = "Recovery complete! You can move again"
+                    message_color = (100, 255, 100)  # Bright green
+
+                screen.blit(small_font.render(recovery_message,
+                            True, message_color), (x, recovery_status_y))
+
+                # Add additional info line
+                if stamina_info["is_recovering"]:
+                    time_to_recovery = stamina_info["time_to_next_recovery"]
+                    additional_info_y = recovery_status_y + \
+                        int(line_height * 0.7)
+                    recovery_time_msg = f"Recovering in {time_to_recovery:.1f}s"
+                    screen.blit(small_font.render(recovery_time_msg,
+                                True, (200, 150, 150)), (x, additional_info_y))
+
+            elif stamina <= 0:
+                # Stamina is 0 but somehow not in recovery mode (edge case)
+                exhausted_message = "EXHAUSTED - Cannot move!"
+                screen.blit(small_font.render(exhausted_message,
+                            True, (255, 50, 50)), (x, recovery_status_y))
+
+            elif stamina <= 10:
+                # Very low stamina warning
+                warning_message = f"Critical stamina! ({stamina:.0f}%)"
+                screen.blit(small_font.render(warning_message, True,
+                            (255, 200, 0)), (x, recovery_status_y))
+
+            elif stamina <= 30:
+                # Low stamina info
+                tired_message = f"Tired - Reduced movement speed ({stamina:.0f}%)"
+                screen.blit(small_font.render(tired_message, True,
+                            (255, 255, 100)), (x, recovery_status_y))
+
+            elif stamina_info["is_recovering"] and not is_in_recovery_mode:
+                # Normal recovery (not in recovery mode)
+                time_to_recovery = stamina_info["time_to_next_recovery"]
+                if time_to_recovery > 0:
+                    recovery_message = f"Resting... recovering in {time_to_recovery:.1f}s"
+                    screen.blit(small_font.render(recovery_message,
+                                True, (150, 255, 150)), (x, recovery_status_y))
+
+        # ACTIVE ORDER SECTION (adjust position to account for stamina status message)
+        # Increased from 60 to make room for status message
+        active_order_y = stamina_bar_y + 80
+        screen.blit(self.font.render("Active Order",
+                    True, white), (x, active_order_y))
+
+        if self.pinv.active:
+            order_info_y = active_order_y + 30
+            order_text = f"Order - {self.pinv.active.id}"
+            screen.blit(self.font.render(
+                order_text, True, white), (x, order_info_y))
+
+            # Time left calculation (simplified for now)
+            time_left_y = order_info_y + 25
+            if self.pinv.active.deadline_s:
+                remaining = max(0, self.pinv.active.deadline_s -
+                                (self.game._game_time_limit_s - self.game.get_game_time()))
+                time_left_text = f"Time left: {remaining:.0f}s" if remaining > 0 else "Time left: 00:00"
             else:
-                available_orders_y = current_y + int(line_height * 0.2)
+                time_left_text = "Time left: 00:00"
+            screen.blit(self.font.render(time_left_text,
+                        True, white), (x, time_left_y))
         else:
-            available_orders_y = stamina_y
+            no_order_y = active_order_y + 30
+            screen.blit(self.font.render("No active order",
+                        True, (128, 128, 128)), (x, no_order_y))
 
-        # Available orders list with improved scrolling display
-        list_y = available_orders_y + int(section_spacing * 0.5)
+        # AVAILABLE JOBS SECTION
+        jobs_section_y = active_order_y + 100
+        screen.blit(self.font.render("Available Jobs",
+                    True, white), (x, jobs_section_y))
 
-        # Get scroll information
+        # Job list with scrolling
+        job_list_y = jobs_section_y + 30
         scroll_info = self.jobs.get_scroll_info(self.game.get_game_time())
-        page_orders = self.jobs.get_selectable_page(self.game.get_game_time())
-        all_orders = self.jobs.all()
+        visible_orders = self.jobs.get_visible_orders(
+            self.game.get_game_time())
 
-        # Debug information
-        debug_text = f"Debug: Total={len(all_orders)}, Available={scroll_info['total_orders']}, Page={len(page_orders)}"
-        screen.blit(small_font.render(debug_text, True,
-                    (100, 100, 100)), (x, list_y - int(line_height * 0.8)))
+        # Show scroll indicators
+        if scroll_info['total_orders'] > scroll_info['visible_count']:
+            scroll_indicator_y = job_list_y - 15
 
-        # Header with page information
-        orders_header = f"Available ({scroll_info['total_orders']} total):"
-        if scroll_info['total_pages'] > 1:
-            orders_header += f" Page {scroll_info['current_page']}/{scroll_info['total_pages']}"
-
-        screen.blit(self.font.render(orders_header, True,
-                    self.window.colors['GRAY']), (x, list_y))
-
-        # Show some order states for debugging
-        debug_y = list_y + int(line_height * 0.6)
-        order_states = {}
-        for o in all_orders[:10]:  # First 10 orders
-            state = o.state
-            order_states[state] = order_states.get(state, 0) + 1
-
-        states_text = " | ".join(
-            [f"{state}:{count}" for state, count in order_states.items()])
-        screen.blit(small_font.render(
-            f"States: {states_text}", True, (150, 150, 150)), (x, debug_y))
-
-        # Scroll indicators
-        if scroll_info['total_pages'] > 1:
-            indicator_y = list_y + line_height
-
-            # Up arrow indicator
+            # Up scroll indicator
             up_color = (100, 255, 100) if scroll_info['can_scroll_up'] else (
-                100, 100, 100)
-            up_text = "↑ X - Previous page" if scroll_info['can_scroll_up'] else "↑ (no more)"
-            screen.blit(small_font.render(
-                up_text, True, up_color), (x, indicator_y))
+                60, 60, 60)
+            up_text = "↑" if scroll_info['can_scroll_up'] else "―"
+            screen.blit(small_font.render(up_text, True, up_color),
+                        (x + 85, scroll_indicator_y))
 
-            # Down arrow indicator
-            down_y = indicator_y + int(line_height * 0.7)
-            down_color = (100, 255, 100) if scroll_info['can_scroll_down'] else (
-                100, 100, 100)
-            down_text = "↓ E - Next page" if scroll_info['can_scroll_down'] else "↓ (no more)"
-            screen.blit(small_font.render(
-                down_text, True, down_color), (x, down_y))
+        # Draw visible job items
+        for i, order in enumerate(visible_orders):
+            job_y = job_list_y + i * 35
 
-            orders_start_y = down_y + int(line_height * 1.2)
-        else:
-            orders_start_y = list_y + line_height
+            # Determine if this job is selected
+            is_selected = self.selected and self.selected.id == order.id
 
-        # Display current page of orders
-        y = orders_start_y
-        for i, o in enumerate(page_orders):
-            tag = "►" if self.selected and self.selected.id == o.id else " "
+            # Enhanced job box design
+            job_rect = pygame.Rect(
+                x, job_y, self.window.get_scaled_size(180), 30)
 
-            # Enhanced order display with more information
-            deadline_remaining = ""
-            if o.deadline_s is not None:
-                remaining = max(
-                    0, o.deadline_s - (self.game._game_time_limit_s - self.game.get_game_time()))
-                deadline_remaining = f" ({remaining:.0f}s)"
+            # Background gradient effect (simulate with multiple rectangles)
+            # Base background - slightly darker than white
+            pygame.draw.rect(screen, (245, 245, 245), job_rect)
 
-            # Color coding based on priority and time
-            if o.priority >= 3:
-                text_color = (255, 200, 100)  # High priority - orange
-            elif o.priority >= 2:
-                text_color = (255, 255, 100)  # Medium priority - yellow
+            # Priority-based color accent on the left side
+            accent_width = 4
+            accent_rect = pygame.Rect(x, job_y, accent_width, 30)
+
+            # Color based on priority
+            if order.priority >= 3:
+                accent_color = (255, 100, 100)  # Red for high priority
+            elif order.priority >= 2:
+                accent_color = (255, 200, 100)  # Orange for medium priority
             else:
-                text_color = white  # Normal priority - white
+                accent_color = (100, 200, 255)  # Blue for normal priority
 
-            # Check if order is about to expire (less than 60 seconds)
-            if deadline_remaining and "s)" in deadline_remaining:
-                remaining_time = float(
-                    deadline_remaining.split("(")[1].split("s)")[0])
-                if remaining_time < 60:
-                    text_color = (255, 100, 100)  # Red for urgent
+            pygame.draw.rect(screen, accent_color, accent_rect)
 
-            left = f"{tag} {o.id} w{int(o.weight)} p{int(o.priority)} ${int(o.payout)}{deadline_remaining}"
+            # Main border
+            border_color = (0, 150, 255) if is_selected else (120, 120, 120)
+            border_width = 2 if is_selected else 1
+            pygame.draw.rect(screen, border_color, job_rect, border_width)
 
-            # Highlight selected order with background
-            if self.selected and self.selected.id == o.id:
-                # Draw selection background
-                selection_rect = pygame.Rect(
-                    x - 5, y - 2, self.window.get_scaled_size(200), int(line_height * 0.9))
-                pygame.draw.rect(screen, (50, 50, 100), selection_rect)
-                text_color = (255, 255, 255)  # White text for selected
+            # Selection glow effect
+            if is_selected:
+                # Outer glow
+                glow_rect = pygame.Rect(
+                    x - 2, job_y - 2, self.window.get_scaled_size(180) + 4, 34)
+                pygame.draw.rect(screen, (100, 180, 255, 100), glow_rect, 1)
 
-            screen.blit(self.font.render(left, True, text_color), (x, y))
-            y += int(line_height * 0.9)
+            # Job information display
+            text_x = x + accent_width + 5  # Start after accent bar
 
-        # Update controls instructions
-        controls_y = y + section_spacing // 2
-        screen.blit(self.font.render("Controls:", True,
-                    self.window.colors['GRAY']), (x, controls_y))
+            # Priority text (top line)
+            priority_text = f"Priority: {order.priority}"
+            priority_color = (80, 80, 80) if not is_selected else (40, 40, 40)
+            screen.blit(small_font.render(priority_text, True,
+                        priority_color), (text_x, job_y + 3))
 
-        controls_info = [
-            "TAB - Next order",
-            "Q - Previous order",
-            "E - Next page",
-            "X - Previous page",
-            "ENTER - Accept order",
-            "R - Switch active order",
-            "Z - Undo last move",
-            "WASD/Arrows - Move",
+            # Payment text (bottom line)
+            payment_text = f"Payment: ${int(order.payout)}"
+            payment_color = (0, 120, 0) if not is_selected else (
+                0, 100, 0)  # Green for money
+            screen.blit(small_font.render(payment_text, True,
+                        payment_color), (text_x, job_y + 16))
+
+            # Weight indicator (small icon on the right)
+            weight_x = x + self.window.get_scaled_size(180) - 25
+            weight_text = f"W:{int(order.weight)}"
+            weight_color = (100, 100, 100)
+            screen.blit(pygame.font.Font(None, 12).render(
+                weight_text, True, weight_color), (weight_x, job_y + 2))
+
+            # Deadline indicator (if urgent)
+            if order.deadline_s:
+                remaining = max(
+                    0, order.deadline_s - (self.game._game_time_limit_s - self.game.get_game_time()))
+                if remaining < 120:  # Less than 2 minutes - show warning
+                    urgent_x = x + self.window.get_scaled_size(180) - 25
+                    urgent_text = "!"
+                    urgent_color = (
+                        255, 0, 0) if remaining < 60 else (255, 150, 0)
+                    screen.blit(pygame.font.Font(None, 16).render(
+                        urgent_text, True, urgent_color), (urgent_x, job_y + 12))
+
+        # Show bottom scroll indicator
+        if scroll_info['total_orders'] > scroll_info['visible_count']:
+            down_indicator_y = job_list_y + len(visible_orders) * 35 + 5
+
+            # Down scroll indicator
+            down_color = (100, 255, 100) if scroll_info['can_scroll_down'] else (
+                60, 60, 60)
+            down_text = "↓" if scroll_info['can_scroll_down'] else "―"
+            screen.blit(small_font.render(down_text, True,
+                        down_color), (x + 85, down_indicator_y))
+
+            # Show position indicator
+            position_text = f"{scroll_info['scroll_offset'] + 1}-{min(scroll_info['scroll_offset'] + scroll_info['visible_count'], scroll_info['total_orders'])} of {scroll_info['total_orders']}"
+            screen.blit(small_font.render(position_text, True,
+                        (128, 128, 128)), (x + 100, down_indicator_y))
+
+        # INSTRUCTIONS SECTION (updated controls)
+        instructions_y = job_list_y + 140  # Fixed position after job list
+        screen.blit(small_font.render("Instructions", True,
+                    (128, 128, 128)), (x, instructions_y))
+
+        instructions = [
+            "TAB - Next job",
+            "Q - Previous job",
+            "E/X - Manual scroll",
+            "ENTER - Accept job",
+            "WASD - Move",
+            "Z - Undo",
             "ESC - Pause"
         ]
 
-        controls_start_y = controls_y + line_height
+        for i, instruction in enumerate(instructions):
+            instruction_y = instructions_y + 20 + i * 15
+            screen.blit(small_font.render(instruction, True,
+                        (100, 100, 100)), (x, instruction_y))
 
-        for i, control in enumerate(controls_info):
-            control_y = controls_start_y + i * int(line_height * 0.8)
-            screen.blit(small_font.render(control, True,
-                        (200, 200, 200)), (x, control_y))
+        # VISUAL MARKERS GUIDE SECTION (moved after instructions)
+        markers_y = instructions_y + 20 + len(instructions) * 15 + 25
+        screen.blit(small_font.render("Markers Guide:", True,
+                    (128, 128, 128)), (x, markers_y))
 
-        # Order status legend with colors
-        legend_y = controls_start_y + \
-            len(controls_info) * int(line_height * 0.8) + line_height // 2
-        screen.blit(self.font.render("Markers:", True,
-                    self.window.colors['GRAY']), (x, legend_y))
+        # Marker size for guide
+        guide_marker_size = 16
+        guide_font = pygame.font.Font(None, 14)
 
-        legend_start_y = legend_y + line_height
-
-        # Active order markers (current task)
+        # Active Order Markers
+        active_guide_y = markers_y + 20
         screen.blit(small_font.render("Active Order:", True,
-                    (255, 255, 255)), (x, legend_start_y))
-        active_y = legend_start_y + int(line_height * 0.8)
+                    (200, 200, 200)), (x, active_guide_y))
 
-        # Draw pickup marker example
+        # Active Pickup marker (green square with P)
+        pickup_guide_y = active_guide_y + 15
         pickup_color = (0, 255, 100)  # Bright green
-        marker_size = int(line_height * 0.6)
         pygame.draw.rect(screen, pickup_color, pygame.Rect(
-            x, active_y, marker_size, marker_size), 2)
-        pickup_font = pygame.font.Font(None, max(12, marker_size // 2))
-        pickup_text = pickup_font.render("P", True, pickup_color)
-        screen.blit(pickup_text, (x + marker_size //
-                    4, active_y + marker_size//4))
-        screen.blit(small_font.render("Pickup (Green)", True,
-                    (200, 200, 200)), (x + marker_size + 5, active_y))
+            x, pickup_guide_y, guide_marker_size, guide_marker_size), 2)
+        pickup_text = guide_font.render("P", True, pickup_color)
+        pickup_rect = pickup_text.get_rect(
+            center=(x + guide_marker_size//2, pickup_guide_y + guide_marker_size//2))
+        screen.blit(pickup_text, pickup_rect)
+        screen.blit(small_font.render("= Pickup (Green)", True,
+                    (150, 150, 150)), (x + guide_marker_size + 8, pickup_guide_y + 2))
 
-        # Draw dropoff marker example
+        # Active Dropoff marker (orange circle with D)
+        dropoff_guide_y = pickup_guide_y + 20
         dropoff_color = (255, 100, 0)  # Bright orange
-        dropoff_y = active_y + int(line_height * 0.8)
-        center_x = x + marker_size // 2
-        center_y = dropoff_y + marker_size // 2
-        pygame.draw.circle(screen, dropoff_color,
-                           (center_x, center_y), marker_size // 3)
-        dropoff_text = pickup_font.render("D", True, (255, 255, 255))
-        d_rect = dropoff_text.get_rect(center=(center_x, center_y))
-        screen.blit(dropoff_text, d_rect)
-        screen.blit(small_font.render("Dropoff (Orange)", True,
-                    (200, 200, 200)), (x + marker_size + 5, dropoff_y))
+        center_x = x + guide_marker_size // 2
+        center_y = dropoff_guide_y + guide_marker_size // 2
+        pygame.draw.circle(screen, dropoff_color, (center_x,
+                           center_y), guide_marker_size // 3)
+        dropoff_text = guide_font.render("D", True, (255, 255, 255))
+        dropoff_rect = dropoff_text.get_rect(center=(center_x, center_y))
+        screen.blit(dropoff_text, dropoff_rect)
+        screen.blit(small_font.render("= Dropoff (Orange)", True,
+                    (150, 150, 150)), (x + guide_marker_size + 8, dropoff_guide_y + 2))
 
-        # Selected order markers (preview)
-        selected_y = dropoff_y + int(line_height * 1.2)
-        screen.blit(small_font.render("Selected Order:",
-                    True, (255, 255, 255)), (x, selected_y))
-        selected_start_y = selected_y + int(line_height * 0.8)
+        # Selected Order Markers (Preview)
+        selected_guide_y = dropoff_guide_y + 30
+        screen.blit(small_font.render("Selected Order:", True,
+                    (200, 200, 200)), (x, selected_guide_y))
 
-        # Selected pickup marker
-        selected_pickup_color = (100, 150, 255)  # Light blue
-        pygame.draw.rect(screen, selected_pickup_color, pygame.Rect(
-            x, selected_start_y, marker_size, marker_size), 2)
-        sel_pickup_text = pickup_font.render("P", True, selected_pickup_color)
-        screen.blit(sel_pickup_text, (x + marker_size//4,
-                    selected_start_y + marker_size//4))
-        screen.blit(small_font.render("Pickup (Blue)", True,
-                    (200, 200, 200)), (x + marker_size + 5, selected_start_y))
+        # Selected Pickup marker (blue square with P)
+        sel_pickup_guide_y = selected_guide_y + 15
+        sel_pickup_color = (100, 150, 255)  # Light blue
+        pygame.draw.rect(screen, sel_pickup_color, pygame.Rect(
+            x, sel_pickup_guide_y, guide_marker_size, guide_marker_size), 2)
+        sel_pickup_text = guide_font.render("P", True, sel_pickup_color)
+        sel_pickup_rect = sel_pickup_text.get_rect(
+            center=(x + guide_marker_size//2, sel_pickup_guide_y + guide_marker_size//2))
+        screen.blit(sel_pickup_text, sel_pickup_rect)
+        screen.blit(small_font.render("= Pickup (Blue)", True,
+                    (150, 150, 150)), (x + guide_marker_size + 8, sel_pickup_guide_y + 2))
 
-        # Selected dropoff marker
-        selected_dropoff_color = (255, 255, 100)  # Light yellow
-        sel_dropoff_y = selected_start_y + int(line_height * 0.8)
-        sel_center_x = x + marker_size // 2
-        sel_center_y = sel_dropoff_y + marker_size // 2
-        pygame.draw.circle(screen, selected_dropoff_color,
-                           (sel_center_x, sel_center_y), marker_size // 3)
-        sel_dropoff_text = pickup_font.render(
+        # Selected Dropoff marker (yellow circle with D)
+        sel_dropoff_guide_y = sel_pickup_guide_y + 20
+        sel_dropoff_color = (255, 255, 100)  # Light yellow
+        sel_center_x = x + guide_marker_size // 2
+        sel_center_y = sel_dropoff_guide_y + guide_marker_size // 2
+        pygame.draw.circle(screen, sel_dropoff_color,
+                           (sel_center_x, sel_center_y), guide_marker_size // 3)
+        sel_dropoff_text = guide_font.render(
             "D", True, (0, 0, 0))  # Black text on yellow
-        sel_d_rect = sel_dropoff_text.get_rect(
+        sel_dropoff_rect = sel_dropoff_text.get_rect(
             center=(sel_center_x, sel_center_y))
-        screen.blit(sel_dropoff_text, sel_d_rect)
-        screen.blit(small_font.render("Dropoff (Yellow)", True,
-                    (200, 200, 200)), (x + marker_size + 5, sel_dropoff_y))
+        screen.blit(sel_dropoff_text, sel_dropoff_rect)
+        screen.blit(small_font.render("= Dropoff (Yellow)", True,
+                    (150, 150, 150)), (x + guide_marker_size + 8, sel_dropoff_guide_y + 2))
 
-        # Toast positioning (was fixed at 700)
+        # Toast positioning (keep at bottom)
         if self.toast:
             toast_y = self.window.height - self.window.get_scaled_size(100)
             t = self.font.render(self.toast, True, (255, 255, 0))
@@ -846,6 +833,7 @@ class GameView(BaseView):
         print("Game view shown with responsive layout")
 
     def handle_button_click(self, button_key):
+        """Handle actions from buttons clicked in the pause menu"""
         print(f"GameView: Button clicked: {button_key}")
 
         if button_key == "resume":
@@ -873,3 +861,134 @@ class GameView(BaseView):
             from .menu_view import MenuView
             menu_view = MenuView()
             self.window.show_view(menu_view)
+            if o.deadline_s is not None:
+                remaining = max(
+                    0, o.deadline_s - (self.game._game_time_limit_s - self.game.get_game_time()))
+                deadline_remaining = f" ({remaining:.0f}s)"
+
+            # Color coding based on priority and time
+            if o.priority >= 3:
+                text_color = (255, 200, 100)  # High priority - orange
+            elif o.priority >= 2:
+                text_color = (255, 255, 100)  # Medium priority - yellow
+            else:
+                text_color = white  # Normal priority - white
+
+            # Check if order is about to expire (less than 60 seconds)
+            if deadline_remaining and "s)" in deadline_remaining:
+                remaining_time = float(
+                    deadline_remaining.split("(")[1].split("s)")[0])
+                if remaining_time < 60:
+                    text_color = (255, 100, 100)  # Red for urgent
+
+            left = f"{tag} {o.id} w{int(o.weight)} p{int(o.priority)} ${int(o.payout)}{deadline_remaining}"
+
+            # Highlight selected order with background
+            if self.selected and self.selected.id == o.id:
+                # Draw selection background
+                selection_rect = pygame.Rect(
+                    x - 5, y - 2, self.window.get_scaled_size(200), int(line_height * 0.9))
+                pygame.draw.rect(screen, (50, 50, 100), selection_rect)
+                text_color = (255, 255, 255)  # White text for selected
+
+            screen.blit(self.font.render(left, True, text_color), (x, y))
+            y += int(line_height * 0.9)
+
+        # Update controls instructions
+        controls_y = y + section_spacing // 2
+        screen.blit(self.font.render("Controls:", True,
+                    self.window.colors['GRAY']), (x, controls_y))
+
+        controls_info = [
+            "TAB - Next order",
+            "Q - Previous order",
+            "E - Next page",
+            "X - Previous page",
+            "ENTER - Accept order",
+            "R - Switch active order",
+            "Z - Undo last move",
+            "WASD/Arrows - Move",
+            "ESC - Pause"
+        ]
+
+        controls_start_y = controls_y + line_height
+
+        for i, control in enumerate(controls_info):
+            control_y = controls_start_y + i * int(line_height * 0.8)
+            screen.blit(small_font.render(control, True,
+                        (200, 200, 200)), (x, control_y))
+
+        # Order status legend with colors
+        legend_y = controls_start_y + \
+            len(controls_info) * int(line_height * 0.8) + line_height // 2
+        screen.blit(self.font.render("Markers:", True,
+                    self.window.colors['GRAY']), (x, legend_y))
+
+        legend_start_y = legend_y + line_height
+
+        # Active order markers (current task)
+        screen.blit(small_font.render("Active Order:", True,
+                    (255, 255, 255)), (x, legend_start_y))
+        active_y = legend_start_y + int(line_height * 0.8)
+
+        # Draw pickup marker example
+        pickup_color = (0, 255, 100)  # Bright green
+        marker_size = int(line_height * 0.6)
+        pygame.draw.rect(screen, pickup_color, pygame.Rect(
+            x, active_y, marker_size, marker_size), 2)
+        pickup_font = pygame.font.Font(None, max(12, marker_size // 2))
+        pickup_text = pickup_font.render("P", True, pickup_color)
+        screen.blit(pickup_text, (x + marker_size //
+                    4, active_y + marker_size//4))
+        screen.blit(small_font.render("Pickup (Green)", True,
+                    (200, 200, 200)), (x + marker_size + 5, active_y))
+
+        # Draw dropoff marker example
+        dropoff_color = (255, 100, 0)  # Bright orange
+        dropoff_y = active_y + int(line_height * 0.8)
+        center_x = x + marker_size // 2
+        center_y = dropoff_y + marker_size // 2
+        pygame.draw.circle(screen, dropoff_color, (center_x,
+                           center_y), marker_size // 3)
+        dropoff_text = pickup_font.render("D", True, (255, 255, 255))
+        d_rect = dropoff_text.get_rect(center=(center_x, center_y))
+        screen.blit(dropoff_text, d_rect)
+        screen.blit(small_font.render("Dropoff (Orange)", True,
+                    (200, 200, 200)), (x + marker_size + 5, dropoff_y))
+
+        # Selected order markers (preview)
+        selected_y = dropoff_y + int(line_height * 1.2)
+        screen.blit(small_font.render("Selected Order:",
+                    True, (255, 255, 255)), (x, selected_y))
+        selected_start_y = selected_y + int(line_height * 0.8)
+
+        # Selected pickup marker
+        selected_pickup_color = (100, 150, 255)  # Light blue
+        pygame.draw.rect(screen, selected_pickup_color, pygame.Rect(
+            x, selected_start_y, marker_size, marker_size), 2)
+        sel_pickup_text = pickup_font.render("P", True, selected_pickup_color)
+        screen.blit(sel_pickup_text, (x + marker_size//4,
+                    selected_start_y + marker_size//4))
+        screen.blit(small_font.render("Pickup (Blue)", True,
+                    (200, 200, 200)), (x + marker_size + 5, selected_start_y))
+
+        # Selected dropoff marker
+        selected_dropoff_color = (255, 255, 100)  # Light yellow
+        sel_dropoff_y = selected_start_y + int(line_height * 0.8)
+        sel_center_x = x + marker_size // 2
+        sel_center_y = sel_dropoff_y + marker_size // 2
+        pygame.draw.circle(screen, selected_dropoff_color,
+                           (sel_center_x, sel_center_y), marker_size // 3)
+        sel_dropoff_text = pickup_font.render(
+            "D", True, (0, 0, 0))  # Black text on yellow
+        sel_d_rect = sel_dropoff_text.get_rect(
+            center=(sel_center_x, sel_center_y))
+        screen.blit(sel_dropoff_text, sel_d_rect)
+        screen.blit(small_font.render("Dropoff (Yellow)", True,
+                    (200, 200, 200)), (x + marker_size + 5, sel_dropoff_y))
+
+        # Toast positioning (keep at bottom)
+        if self.toast:
+            toast_y = self.window.height - self.window.get_scaled_size(100)
+            t = self.font.render(self.toast, True, (255, 255, 0))
+            screen.blit(t, (x, toast_y))

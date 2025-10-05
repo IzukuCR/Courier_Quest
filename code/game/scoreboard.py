@@ -12,8 +12,9 @@ class Scoreboard:
     def get_score(self):
         return self.score
 
-    def add_score(self, points):
-        self.score += points
+    def reset_score(self):
+        """Reset score to 0"""
+        self.score = 0
 
-    def get_score(self):
-        return self.score
+    def get_player_name(self):
+        return self.player_name
