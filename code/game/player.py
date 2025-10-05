@@ -14,6 +14,10 @@ class Player:
         self.move_progress = 0.0
         self.move_speed = 0.7  # Speed of movement (0.0 to 1.0)
 
+        # Sprites - will be scaled dynamically
+        self.base_sprite_size = 24  # Base size for scaling
+        self.current_sprite_size = 24
+
         self.sprites = {}  # Sprites
         self.current_direction = "DOWN"  # Default direction
         self.animation_frame = 0
@@ -35,6 +39,9 @@ class Player:
         self.update_move_speed()
 
     def load_sprites(self):
+        # Store original sprites for scaling
+        self.original_sprites = {}
+        self.sprites = {}
 
         sprite_files = {
             "UP": "code/assets/player/bike_UP.PNG",
@@ -46,21 +53,27 @@ class Player:
         for direction, file_path in sprite_files.items():
             try:
                 if os.path.exists(file_path):  # Check if file exists
-                    image = pygame.image.load(file_path)  # Load image
+                    # Load original image without scaling
+                    original_image = pygame.image.load(file_path)
+                    self.original_sprites[direction] = original_image
 
+                    # Create initial scaled version
                     scaled_image = pygame.transform.scale(
-                        image, (24, 24))  # Change size of sprite
-                    # Store in dictionary
+                        original_image, (self.base_sprite_size, self.base_sprite_size))
                     self.sprites[direction] = scaled_image
-
                 else:
-                    self.sprites[direction] = self.create_placeholder_sprite(
-                        direction)  # Create placeholder if file not found
+                    # Create placeholder and store as original
+                    placeholder = self.create_placeholder_sprite(
+                        direction, self.base_sprite_size)
+                    self.original_sprites[direction] = placeholder
+                    self.sprites[direction] = placeholder
 
             except Exception as e:
                 print(f"Player: Error loading player sprite {file_path}: {e}")
-                self.sprites[direction] = self.create_placeholder_sprite(
-                    direction)
+                placeholder = self.create_placeholder_sprite(
+                    direction, self.base_sprite_size)
+                self.original_sprites[direction] = placeholder
+                self.sprites[direction] = placeholder
 
         # If don't have any sprites, create placeholders
         if not self.sprites:
@@ -69,11 +82,10 @@ class Player:
                 self.sprites[direction] = self.create_placeholder_sprite(
                     direction)
 
-    def create_placeholder_sprite(self, direction):
-        # Create a colored circle if sprite not found
-        size = 24
+    def create_placeholder_sprite(self, direction, size=24):
+        # Create scalable placeholder (was fixed size)
         surface = pygame.Surface(
-            (size, size), pygame.SRCALPHA)  # Transparent surface
+            (size, size), pygame.SRCALPHA)
 
         # Colors for directions
         colors = {
@@ -91,52 +103,59 @@ class Player:
         pygame.draw.circle(surface, (0, 0, 0),
                            (center, center), center - 2, 2)  # Border
 
-        # Small arrow to indicate direction
+        # Scale arrow proportionally
+        arrow_size = max(4, size // 6)
         if direction == "UP":
             pygame.draw.polygon(surface, (0, 0, 0), [
-                                (center, 6), (center-4, 14), (center+4, 14)])  # Arrow
+                                (center, arrow_size),
+                                (center-arrow_size, arrow_size*2),
+                                (center+arrow_size, arrow_size*2)])
         elif direction == "DOWN":
             pygame.draw.polygon(surface, (0, 0, 0), [
-                                # Arrow
-                                (center, size-6), (center-4, size-14), (center+4, size-14)])
+                                (center, size-arrow_size),
+                                (center-arrow_size, size-arrow_size*2),
+                                (center+arrow_size, size-arrow_size*2)])
         elif direction == "LEFT":
             pygame.draw.polygon(surface, (0, 0, 0), [
-                                (6, center), (14, center-4), (14, center+4)])  # Arrow
+                                (arrow_size, center),
+                                (arrow_size*2, center-arrow_size),
+                                (arrow_size*2, center+arrow_size)])
         elif direction == "RIGHT":
             pygame.draw.polygon(surface, (0, 0, 0), [
-                                # Arrow
-                                (size-6, center), (size-14, center-4), (size-14, center+4)])
+                                (size-arrow_size, center),
+                                (size-arrow_size*2, center-arrow_size),
+                                (size-arrow_size*2, center+arrow_size)])
 
         return surface
 
     def move_to(self, new_x, new_y, city, weather=None):
 
-        if not self.is_moving:  # Solo si no se está moviendo
+        if not self.is_moving:  # Only if not already moving
 
-            # Calcular velocidad actual
+            # Calculate current speed
             self.current_speed = self.calculate_speed(
                 weather, city, self.x, self.y)
 
-            # Si velocidad es 0 (exhausto), no puede moverse
+            # If speed is 0 (exhausted), cannot move
             if self.current_speed <= 0:
                 print("Player is exhausted - cannot move!")
                 return False
 
-            # ✅ NUEVO: Calcular cuántas casillas puede moverse basado en velocidad
+            # Movement distance based on speed
             max_distance = self.calculate_movement_distance()
 
-            # Calcular dirección del movimiento
+            # Calculate movement direction
             direction_x = 1 if new_x > self.x else (
                 -1 if new_x < self.x else 0)
             direction_y = 1 if new_y > self.y else (
                 -1 if new_y < self.y else 0)
 
-            # ✅ NUEVO: Encontrar la posición final válida dentro del rango
+            # Find final position considering obstacles
             final_x, final_y = self.find_final_position(
                 self.x, self.y, direction_x, direction_y, max_distance, city
             )
 
-            # Solo moverse si hay cambio de posición
+            # Only move if there is a change in position
             if final_x != self.x or final_y != self.y:
 
                 distance_moved = max(abs(final_x - self.x),
@@ -147,13 +166,13 @@ class Player:
                 self.is_moving = True
                 self.move_progress = 0.0
 
-                # Actualizar move_speed basado en distancia
+                # Update move_speed based on distance
                 self.update_move_speed_for_distance()
 
                 # Update stamina after move
                 self.update_stamina_after_move(distance_moved, weather, city)
 
-                # Determinar dirección para animación
+                # Determine direction for animation
                 if final_x > self.x:
                     self.current_direction = "RIGHT"
                 elif final_x < self.x:
@@ -252,7 +271,24 @@ class Player:
 
         return int(screen_x), int(screen_y)
 
+    def update_sprite_scale(self, cell_size):
+        """Update sprite scaling based on current cell size"""
+        # Calculate appropriate sprite size (80% of cell size)
+        new_size = max(16, int(cell_size * 0.8))
+
+        if new_size != self.current_sprite_size:
+            self.current_sprite_size = new_size
+
+            # Rescale all sprites from originals
+            for direction, original in self.original_sprites.items():
+                if original:
+                    self.sprites[direction] = pygame.transform.scale(
+                        original, (new_size, new_size))
+
     def draw(self, screen, cell_size, map_offset_x, map_offset_y):
+        # Update sprite scale if needed
+        self.update_sprite_scale(cell_size)
+
         # Draw player
         screen_x, screen_y = self.get_screen_position(
             cell_size, map_offset_x, map_offset_y)
@@ -264,8 +300,10 @@ class Player:
             sprite_rect.center = (screen_x, screen_y)
             screen.blit(sprite, sprite_rect)
         else:
-            # Fallback: simple circle
-            pygame.draw.circle(screen, (255, 0, 0), (screen_x, screen_y), 12)
+            # Fallback: scaled circle
+            radius = max(8, cell_size // 3)
+            pygame.draw.circle(screen, (255, 0, 0),
+                               (screen_x, screen_y), radius)
 
     def can_move_to(self, new_x, new_y, city):
         # Check if the player can move to a position
@@ -307,9 +345,7 @@ class Player:
         return max(0.0, final_speed)  # Dont allow negative speed
 
     def update_move_speed(self):
-        """Actualizar move_speed interno basado en current_speed"""
-        # Convertir celdas/seg a move_progress por frame
-        # move_speed controla qué tan rápido se completa el movimiento (0.0-1.0 por frame)
+        # Update move_speed based on current_speed
         if self.current_speed > 0:
             # A 60 FPS, 1 celda/seg = 1/60 de progreso por frame
             self.move_speed = min(

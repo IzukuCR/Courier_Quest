@@ -1,4 +1,3 @@
-
 import datetime
 
 
@@ -234,4 +233,36 @@ class Weather:
 
         return None
 
+    def get_weather_data(self) -> dict:
+        """
+        Get comprehensive weather data including condition, intensity, bursts, and transitions.
+        """
+        active_burst = self._get_active_burst()
 
+        return {
+            "city": self.city,
+            "current_condition": self.current_condition,
+            "current_intensity": self.current_intensity,
+            "speed_multiplier": self.get_speed_multiplier(),
+            "available_conditions": self.conditions,
+            "transition_matrix": self.transition_matrix,
+            "start_time": self.start_time,
+            "total_bursts": len(self.bursts),
+            "active_burst": active_burst,
+            "has_active_burst": active_burst is not None,
+            "meta": self.meta
+        }
+
+    def get_burst_info(self) -> dict:
+        """
+        Get information about weather bursts.
+        """
+        active_burst = self._get_active_burst()
+
+        return {
+            "total_bursts": len(self.bursts),
+            "active_burst": active_burst,
+            "has_active_burst": active_burst is not None,
+            "start_time": self.start_time,
+            "conditions_with_bursts": list(set(burst["condition"] for burst in self.bursts))
+        }

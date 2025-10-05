@@ -9,10 +9,11 @@ OrderState = Literal[
     "available", "accepted", "carrying", "delivered", "expired", "cancelled"
 ]
 
+
 @dataclass
 class Order:
     """Represents a delivery order with pickup/dropoff locations and timing.
-    
+
     Attributes:
         id: Unique identifier for the order.
         pickup: Pickup location as [x, y] coordinates.
@@ -40,11 +41,11 @@ class Order:
     accepted_at: Optional[float] = None
     picked_at: Optional[float] = None
     delivered_at: Optional[float] = None
-    deadline_s: Optional[float] = None  # seconds from game start 
+    deadline_s: Optional[float] = None  # seconds from game start
 
     def set_deadline_from_start(self, start_dt_iso: Optional[str]) -> None:
         """Set the deadline in seconds from the game start time.
-        
+
         Args:
             start_dt_iso: Game start time in ISO format, or None.
         """
@@ -52,18 +53,20 @@ class Order:
             if not start_dt_iso:
                 self.deadline_s = None
                 return
-            start_dt = datetime.fromisoformat(start_dt_iso.replace('Z', '+00:00'))
-            ddl_dt = datetime.fromisoformat(self.deadline_iso.replace('Z', '+00:00'))
+            start_dt = datetime.fromisoformat(
+                start_dt_iso.replace('Z', '+00:00'))
+            ddl_dt = datetime.fromisoformat(
+                self.deadline_iso.replace('Z', '+00:00'))
             self.deadline_s = max(0.0, (ddl_dt - start_dt).total_seconds())
         except Exception:
             self.deadline_s = None
 
     def is_released(self, t: float) -> bool:
         """Check if the order has been released and is available.
-        
+
         Args:
             t: Current game time in seconds.
-            
+
         Returns:
             bool: True if order is released, False otherwise.
         """
@@ -71,10 +74,10 @@ class Order:
 
     def is_available_to_accept(self, t: float) -> bool:
         """Check if the order is available to be accepted.
-        
+
         Args:
             t: Current game time in seconds.
-            
+
         Returns:
             bool: True if order can be accepted, False otherwise.
         """
@@ -82,23 +85,23 @@ class Order:
 
     def is_expired(self, t: float) -> bool:
         """Check if the order has expired based on deadline.
-        
+
         Args:
             t: Current game time in seconds.
-            
+
         Returns:
             bool: True if order has expired, False otherwise.
         """
-        return (self.deadline_s is not None and t > self.deadline_s and 
+        return (self.deadline_s is not None and t > self.deadline_s and
                 self.state not in ("delivered", "cancelled"))
 
     def at_pickup(self, x: int, y: int) -> bool:
         """Check if player is at or adjacent to the pickup location.
-        
+
         Args:
             x: Player's X coordinate.
             y: Player's Y coordinate.
-            
+
         Returns:
             bool: True if player can interact with pickup, False otherwise.
         """
@@ -107,11 +110,11 @@ class Order:
 
     def at_dropoff(self, x: int, y: int) -> bool:
         """Check if player is at or adjacent to the dropoff location.
-        
+
         Args:
             x: Player's X coordinate.
             y: Player's Y coordinate.
-            
+
         Returns:
             bool: True if player can interact with dropoff, False otherwise.
         """
