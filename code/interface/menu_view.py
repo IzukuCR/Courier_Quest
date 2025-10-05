@@ -32,7 +32,7 @@ class MenuView(BaseView):
             button_height = self.window.get_scaled_size(50)
             button_spacing = self.window.get_scaled_size(70)
 
-            # Create responsive button layout
+            # Create responsive button layout - removed save button
             self.buttons = {
                 "play": {
                     "rect": pygame.Rect(center_x - button_width//2,
@@ -72,6 +72,8 @@ class MenuView(BaseView):
                         break
 
     def handle_button_click(self, button_key):
+        print(f"MenuView: Button clicked: {button_key}")
+
         if button_key == "play":
             print("Starting new game...")
             from .player_setup_view import PlayerSetupView
@@ -79,7 +81,9 @@ class MenuView(BaseView):
             self.window.show_view(player_setup_view)
 
         elif button_key == "load":
-            print("Loading game... (Not implemented)")  # Not yet implemented
+            from .load_game_view import LoadGameView
+            load_view = LoadGameView()
+            self.window.show_view(load_view)
 
         elif button_key == "quit":
             print("Closing game...")
@@ -108,6 +112,28 @@ class MenuView(BaseView):
         # Buttons (positions now calculated in on_show())
         for button_key, button_data in self.buttons.items():
             self.draw_button(screen, button_key, button_data)
+
+    def draw_button(self, screen, button_key, button_data):
+        rect = button_data["rect"]
+        text = button_data["text"]
+
+        # Color based on hover state
+        if self.hovered_button == button_key:
+            bg_color = self.window.colors['BLUE']
+            border_color = self.window.colors['WHITE']
+        else:
+            bg_color = self.window.colors['GRAY']
+            border_color = self.window.colors['WHITE']
+
+        # Draw button rectangle
+        pygame.draw.rect(screen, bg_color, rect)
+        pygame.draw.rect(screen, border_color, rect, 2)
+
+        # Button text
+        text_surface = self.button_font.render(
+            text, True, self.window.colors['WHITE'])
+        text_rect = text_surface.get_rect(center=rect.center)
+        screen.blit(text_surface, text_rect)
 
     def draw_button(self, screen, button_key, button_data):
         rect = button_data["rect"]

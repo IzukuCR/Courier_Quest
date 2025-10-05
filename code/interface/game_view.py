@@ -193,6 +193,8 @@ class GameView(BaseView):
 
     def handle_pause_action(self, action):
         """Handle actions from the pause menu"""
+        print(f"GameView: Pause menu action received: {action}")
+
         if action == "continue":
             # Continue the game
             self.game.resume_game()
@@ -200,9 +202,18 @@ class GameView(BaseView):
             self.toast, self.toast_timer = "Game resumed", 1.0
 
         elif action == "save":
-            # Save game functionality - you'll implement this
-            self.toast, self.toast_timer = "Game saved", 2.0
-            print("SAVE ACTION - Implement save game logic here")
+            # Save the game using Game's save method
+            print("GameView: Save game action from pause menu")
+            print(
+                f"GameView: Current game state - playing={self.game._is_playing}, paused={self.game._paused}")
+
+            success = self.game.save_game()
+            if success:
+                self.toast, self.toast_timer = "Game saved successfully", 2.0
+                print("GameView: Game saved successfully from pause menu!")
+            else:
+                self.toast, self.toast_timer = "Failed to save game", 2.0
+                print("GameView: Game save failed from pause menu!")
 
         elif action == "exit":
             # Exit to main menu - redirect to MenuView
@@ -569,7 +580,37 @@ class GameView(BaseView):
             self.font = pygame.font.Font(None, base_font_size)
             self.big = pygame.font.Font(None, big_font_size)
 
-            # Initialize pause menu
+            # Initialize pause menu with save functionality
             self.pause_menu = PauseMenu(self.window)
+            print("GameView: Pause menu initialized with save functionality")
 
         print("Game view shown with responsive layout")
+
+    def handle_button_click(self, button_key):
+        print(f"GameView: Button clicked: {button_key}")
+
+        if button_key == "resume":
+            print("GameView: Resuming game...")
+            from ..game.game import Game
+            game = Game()
+            game.resume_game()
+            self.show_pause_menu = False
+
+        elif button_key == "save":
+            print("GameView: Save game button clicked in pause menu")
+            from ..game.game import Game
+            game = Game()
+
+            # Save the current game state
+            print("GameView: Attempting to save game from pause menu...")
+            if game.save_game():
+                print("GameView: Game saved successfully from pause menu!")
+                # You could add a visual feedback here (like a temporary message)
+            else:
+                print("GameView: Game save failed from pause menu!")
+
+        elif button_key == "menu":
+            print("GameView: Returning to main menu...")
+            from .menu_view import MenuView
+            menu_view = MenuView()
+            self.window.show_view(menu_view)

@@ -12,10 +12,10 @@ if __name__ == "__main__":
         city = game.get_city()
         if city and hasattr(city, 'tiles'):
             print(
-                f"Ciudad cargada: {len(city.tiles)}x{len(city.tiles[0])} tiles")
+                f"City loaded: {len(city.tiles)}x{len(city.tiles[0])} tiles")
         else:
 
-            print("Warning: No se pudo cargar la ciudad correctamente")
+            print("Warning: Could not load city correctly")
             print(f"City type: {type(city)}")
             print(f"City value: {city}")
 

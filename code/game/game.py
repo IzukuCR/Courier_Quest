@@ -85,6 +85,16 @@ class Game:
         self._initialized = True
         print("Game: Singleton initialization complete")
 
+        # Initialize save manager
+        print("Game: Initializing save manager...")
+        try:
+            from ..services.game_save_manager import GameSaveManager
+            self._save_manager = GameSaveManager()
+            print("Game: Save manager initialized successfully")
+        except Exception as e:
+            print(f"Game: Error initializing save manager: {e}")
+            self._save_manager = None
+
     def set_player_name(self, name):
         self._player_name = name
 
@@ -96,6 +106,43 @@ class Game:
 
     def get_weather(self):
         return self._weather
+
+    def save_game(self, save_name: Optional[str] = None) -> bool:
+        """Save the current game state."""
+        print(f"Game: save_game called with save_name={save_name}")
+
+        if not self._save_manager:
+            print("Game: ERROR - Save manager not initialized!")
+            return False
+
+        print(
+            f"Game: Current game state - playing={self._is_playing}, player_name={self._player_name}")
+        print(
+            f"Game: Game time={self._game_time_s}, has_player={self._player is not None}")
+
+        result = self._save_manager.save_game(save_name)
+        print(f"Game: save_game result={result}")
+        return result
+
+    def load_game(self, save_name: str) -> bool:
+        """Load a game state."""
+        print(f"Game: load_game called with save_name={save_name}")
+
+        if not self._save_manager:
+            print("Game: ERROR - Save manager not initialized!")
+            return False
+
+        result = self._save_manager.load_game(save_name)
+        print(f"Game: load_game result={result}")
+        return result
+
+    def list_saves(self) -> list:
+        """List available saves."""
+        return self._save_manager.list_saves()
+
+    def delete_save(self, save_name: str) -> bool:
+        """Delete a save file."""
+        return self._save_manager.delete_save(save_name)
 
     def get_weather_condition(self) -> dict:
         """
