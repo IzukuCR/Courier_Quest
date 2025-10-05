@@ -1,5 +1,6 @@
 import pygame
 import os
+from .undo_sistem import UndoSystem
 
 
 class Player:
@@ -35,8 +36,25 @@ class Player:
         self.current_speed = 3.0  # Current speed (modified by conditions)
         self.resistance_state = "tired"  # "normal", "tired", "exhausted"
 
+        # Stamina recovery system
+        self.idle_time = 0.0  # Time spent not moving (in seconds)
+        self.stamina_recovery_rate = 5.0  # Stamina recovered per second when idle
+        self.stamina_recovery_interval = 1.0  # Recovery every 1 second
+
+        # Recovery threshold system
+        # Must recover to this amount to move again after exhaustion
+        self.recovery_threshold = 30.0
+        self.is_in_recovery_mode = False  # Track if player is in recovery mode
+        self.was_exhausted = False  # Track if player was previously exhausted
+
         # Update speed based on initial stats
         self.update_move_speed()
+
+        # Add undo system
+        self.undo_system = UndoSystem(
+            max_undo_steps=8, stamina_cost_per_undo=10.0)
+        print(
+            f"Player: Undo system initialized with {self.undo_system.max_steps} max steps")
 
     def load_sprites(self):
         # Store original sprites for scaling
@@ -128,9 +146,24 @@ class Player:
 
         return surface
 
-    def move_to(self, new_x, new_y, city, weather=None):
+    def move_to(self, new_x, new_y, city, weather) -> bool:
+        # Save current position before attempting move
+        self.undo_system.save_position(self.x, self.y)
 
         if not self.is_moving:  # Only if not already moving
+
+            # Check if player is in recovery mode (cannot move until threshold is met)
+            if self.is_in_recovery_mode:
+                if self.stamina < self.recovery_threshold:
+                    print(
+                        f"Player is in recovery mode - need {self.recovery_threshold} stamina to move (current: {self.stamina:.1f})")
+                    return False
+                else:
+                    # Player has recovered enough, exit recovery mode
+                    self.is_in_recovery_mode = False
+                    self.was_exhausted = False
+                    print(
+                        f"Player recovered! Can move again (stamina: {self.stamina:.1f})")
 
             # Calculate current speed
             self.current_speed = self.calculate_speed(
@@ -165,6 +198,9 @@ class Player:
                 self.target_y = final_y
                 self.is_moving = True
                 self.move_progress = 0.0
+
+                # Reset idle time when starting to move
+                self.idle_time = 0.0
 
                 # Update move_speed based on distance
                 self.update_move_speed_for_distance()
@@ -222,17 +258,37 @@ class Player:
         return current_x, current_y
 
     def update_move_speed_for_distance(self):
-
         # Calculate movement distance
         distance = max(abs(self.target_x - self.x),
                        abs(self.target_y - self.y))
 
         if distance > 0 and self.current_speed > 0:
-            # Time corresponding to distance and speed
-            # High speed + long distance = same time as normal speed + short distance
-            base_time = distance / self.current_speed  # Time in seconds
-            # Convert to progress per frame
-            self.move_speed = min(1.0, 1.0 / (base_time * 60))
+            # Base animation time - reduced values to make movements faster overall
+            # The current 2-tile speed becomes the new 1-tile speed
+            if distance == 1:
+                # Faster for single tile (was 0.4, now uses old 2-tile speed)
+                base_animation_time = 0.25
+            elif distance == 2:
+                # Even faster for 2-tile movements (was 0.5)
+                base_animation_time = 0.35
+            elif distance >= 3:
+                # Fastest for longer movements (was 0.6)
+                base_animation_time = 0.45
+            else:
+                base_animation_time = 0.2   # Fallback - very fast
+
+            # Scale animation time based on speed - higher speed = faster animation
+            # But keep the distance-based difference
+            speed_multiplier = self.current_speed / 3.0  # Normalize to base speed of 3.0
+            actual_animation_time = base_animation_time / \
+                max(0.5, speed_multiplier)
+
+            # Convert to progress per frame (60 FPS)
+            self.move_speed = min(1.0, 1.0 / (actual_animation_time * 60))
+
+            # Debug info to see the animation speed difference
+            print(
+                f"Player: Speed={self.current_speed:.1f}, Distance={distance}, AnimTime={actual_animation_time:.3f}, AnimSpeed={self.move_speed:.3f}")
         else:
             self.move_speed = 0.0
 
@@ -248,6 +304,28 @@ class Player:
                 self.y = self.target_y
                 self.is_moving = False
                 self.move_progress = 0.0
+        else:
+            # Player is not moving - accumulate idle time
+            self.idle_time += delta_time
+
+            # Check if enough idle time has passed for stamina recovery
+            if self.idle_time >= self.stamina_recovery_interval:
+                # Calculate how many recovery intervals have passed
+                recovery_cycles = int(
+                    self.idle_time // self.stamina_recovery_interval)
+
+                if recovery_cycles > 0:
+                    # Recover stamina
+                    stamina_to_recover = self.stamina_recovery_rate * recovery_cycles
+                    old_stamina = self.stamina
+                    recovered = self.recover_stamina(stamina_to_recover)
+
+                    # Reset idle time, keeping any fractional remainder
+                    self.idle_time = self.idle_time % self.stamina_recovery_interval
+
+                    if recovered > 0:
+                        print(
+                            f"Player: Recovered {recovered:.1f} stamina from resting (idle for {recovery_cycles}s)")
 
         # Update animation (always, even if not moving)
         self.animation_timer += 1
@@ -428,12 +506,20 @@ class Player:
             distance_moved, weather, city)  # get stamina loss
 
         # stamina_loss is negative
+        old_stamina = self.stamina
         self.stamina = max(0, min(100, self.stamina + stamina_loss))
 
+        # Check if player just became exhausted (stamina reached 0)
+        if old_stamina > 0 and self.stamina <= 0:
+            self.is_in_recovery_mode = True
+            self.was_exhausted = True
+            print(
+                f"Player exhausted! Entering recovery mode - must recover to {self.recovery_threshold} stamina to move again")
+
         # Update resistance state based on new stamina
-        if self.stamina >= 70:
+        if self.stamina > 30:
             self.set_resistance_state("normal")
-        elif self.stamina >= 30:
+        elif self.stamina <= 30 and self.stamina > 0:
             self.set_resistance_state("tired")
         else:
             self.set_resistance_state("exhausted")
@@ -448,17 +534,88 @@ class Player:
         # Increase stamina by amount, capped at 100
         self.stamina = max(0, min(100, self.stamina + amount))
 
-        # update resistance state
-        if self.stamina >= 70:
+        # Check if player exits recovery mode and update resistance state immediately
+        if self.is_in_recovery_mode and self.stamina >= self.recovery_threshold:
+            self.is_in_recovery_mode = False
+            self.was_exhausted = False
+            print(
+                f"Recovery threshold reached! Player can move again (stamina: {self.stamina:.1f})")
+
+        # Update resistance state based on new stamina - do this after checking recovery mode
+        if self.stamina > 30:
             self.set_resistance_state("normal")
-        elif self.stamina >= 30:
+        elif self.stamina <= 30 and self.stamina > 0:
             self.set_resistance_state("tired")
         else:
             self.set_resistance_state("exhausted")
+            # If stamina drops to 0, enter recovery mode
+            if not self.is_in_recovery_mode and old_stamina > 0:
+                self.is_in_recovery_mode = True
+                self.was_exhausted = True
+                print(f"Player exhausted during recovery! Re-entering recovery mode")
 
         # Debug info
         actual_increase = self.stamina - old_stamina
         print(
-            f"Stamina increased by {actual_increase:.1f} → {self.stamina:.1f} - State: {self.resistance_state}")
+            f"Stamina increased by {actual_increase:.1f} → {self.stamina:.1f} - State: {self.resistance_state} - Recovery Mode: {self.is_in_recovery_mode}")
 
         return actual_increase
+
+    def undo_last_move(self) -> bool:
+        """Undo the last move if possible"""
+        if not self.undo_system.can_undo():
+            print("Player: No moves to undo")
+            return False
+
+        # Check if player has enough stamina (if stamina system exists)
+        stamina_cost = self.undo_system.get_stamina_cost()
+        if hasattr(self, 'stamina') and self.stamina < stamina_cost:
+            print(
+                f"Player: Not enough stamina for undo (need {stamina_cost}, have {self.stamina})")
+            return False
+
+        success, prev_x, prev_y = self.undo_system.undo_last_move()
+
+        if success:
+            # Move player to previous position
+            self.x = prev_x
+            self.y = prev_y
+            self.target_x = prev_x
+            self.target_y = prev_y
+            self.is_moving = False
+
+            # Reset idle time when undoing (player just "moved")
+            self.idle_time = 0.0
+
+            # Consume stamina if system exists
+            if hasattr(self, 'stamina'):
+                self.stamina -= stamina_cost
+
+            print(f"Player: Undid move to position ({prev_x}, {prev_y})")
+            return True
+
+        return False
+
+    def get_stamina_info(self) -> dict:
+        """Get stamina system information for UI display"""
+        return {
+            "stamina": self.stamina,
+            "max_stamina": 100,
+            "resistance_state": self.resistance_state,
+            "idle_time": self.idle_time,
+            "recovery_rate": self.stamina_recovery_rate,
+            "time_to_next_recovery": max(0.0, self.stamina_recovery_interval - self.idle_time),
+            "is_recovering": not self.is_moving and self.stamina < 100,
+            "is_in_recovery_mode": self.is_in_recovery_mode,
+            "recovery_threshold": self.recovery_threshold,
+            "recovery_progress": self.stamina / self.recovery_threshold if self.is_in_recovery_mode else 1.0,
+            "can_move": not self.is_in_recovery_mode or self.stamina >= self.recovery_threshold
+        }
+
+    def clear_undo_on_delivery(self):
+        """Clear undo history when making a delivery"""
+        self.undo_system.clear_history_on_delivery()
+
+    def get_undo_info(self) -> dict:
+        """Get undo system information for UI display"""
+        return self.undo_system.get_info()

@@ -51,15 +51,23 @@ class Order:
         """
         try:
             if not start_dt_iso:
-                self.deadline_s = None
+                # If no start time, set deadline far in the future
+                self.deadline_s = 3600.0  # 1 hour from now
                 return
             start_dt = datetime.fromisoformat(
                 start_dt_iso.replace('Z', '+00:00'))
             ddl_dt = datetime.fromisoformat(
                 self.deadline_iso.replace('Z', '+00:00'))
             self.deadline_s = max(0.0, (ddl_dt - start_dt).total_seconds())
-        except Exception:
-            self.deadline_s = None
+
+            # If deadline is too short, extend it
+            if self.deadline_s < 300:  # Less than 5 minutes
+                self.deadline_s = 600.0  # Set to 10 minutes
+
+        except Exception as e:
+            print(f"Error setting deadline for {self.id}: {e}")
+            # Fallback to 10 minutes
+            self.deadline_s = 600.0
 
     def is_released(self, t: float) -> bool:
         """Check if the order has been released and is available.
@@ -81,7 +89,8 @@ class Order:
         Returns:
             bool: True if order can be accepted, False otherwise.
         """
-        return self.state == "available" and self.is_released(t)
+        # Make orders available immediately instead of waiting for release time
+        return self.state == "available" and not self.is_expired(t)
 
     def is_expired(self, t: float) -> bool:
         """Check if the order has expired based on deadline.
@@ -92,8 +101,21 @@ class Order:
         Returns:
             bool: True if order has expired, False otherwise.
         """
-        return (self.deadline_s is not None and t > self.deadline_s and
-                self.state not in ("delivered", "cancelled"))
+        if self.deadline_s is None:
+            return False  # No deadline means never expires
+
+        # For countdown timer (t starts at max and counts down)
+        # Calculate elapsed time from start
+        from ..game.game import Game
+        try:
+            game = Game()
+            elapsed_time = game._game_time_limit_s - t
+            is_expired = elapsed_time > self.deadline_s and self.state not in (
+                "delivered", "cancelled")
+
+            return is_expired
+        except:
+            return False  # Default to not expired if we can't calculate
 
     def at_pickup(self, x: int, y: int) -> bool:
         """Check if player is at or adjacent to the pickup location.
