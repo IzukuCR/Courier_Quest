@@ -62,3 +62,27 @@ class PlayerInventory:
             return f"{done.id} delivered (+{done.payout:.0f})."
 
         return None
+    
+    def next_active(self) -> Optional[Order]:
+        """Select next active order among accepted ones."""
+        if not self.accepted:
+            return self.active
+        if self.active not in self.accepted:
+            self.active = self.accepted[0]
+            return self.active
+        idx = self.accepted.index(self.active)
+        idx = (idx + 1) % len(self.accepted)
+        self.active = self.accepted[idx]
+        return self.active
+
+    def prev_active(self) -> Optional[Order]:
+        """Select previous active order among accepted ones."""
+        if not self.accepted:
+            return self.active
+        if self.active not in self.accepted:
+            self.active = self.accepted[-1]
+            return self.active
+        idx = self.accepted.index(self.active)
+        idx = (idx - 1) % len(self.accepted)
+        self.active = self.accepted[idx]
+        return self.active

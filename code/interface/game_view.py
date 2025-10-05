@@ -157,12 +157,22 @@ class GameView(BaseView):
                 if self.selected:
                     self.toast, self.toast_timer = f"Selected {self.selected.id}", 2.0
 
+            elif event.key == pygame.K_q:
+                self.selected = self.jobs.cycle_selection_prev(self.game.get_game_time())
+                if self.selected:
+                    self.toast, self.toast_timer = f"Selected {self.selected.id}", 2.0
+
             elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 if self.selected:
                     if self.pinv.accept(self.selected, self.game.get_game_time()):
                         self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
                     else:
                         self.toast, self.toast_timer = f"Could not accept {self.selected.id}", 2.0
+
+            elif event.key == pygame.K_r:
+                new_active = self.pinv.next_active()
+                if new_active:
+                    self.toast, self.toast_timer = f"Active: {new_active.id}", 2.0
 
             # Safety check for player existence
             elif self.player:
@@ -180,8 +190,6 @@ class GameView(BaseView):
                 if (new_x, new_y) != (self.player.x, self.player.y):
                     ok = self.player.move_to(
                         new_x, new_y, self.city, self.weather)
-                    if not ok:
-                        self.toast, self.toast_timer = "You can't move there", 1.5
 
     def handle_pause_action(self, action):
         """Handle actions from the pause menu"""
@@ -254,20 +262,47 @@ class GameView(BaseView):
                     pygame.draw.rect(screen, (0, 0, 0), rect, 1)
         # pickup / dropoff markers (internal helper using self/screen)
 
-        def draw_marker(pos, col):
+        def draw_enhanced_marker(pos, col, marker_type="pickup"):
             if not pos:
                 return
             cx = self.map_offset_x + pos[0] * self.cell_size
             cy = self.map_offset_y + pos[1] * self.cell_size
-            pygame.draw.rect(screen, col, pygame.Rect(
-                cx, cy, self.cell_size, self.cell_size), 3)
+            
+            if marker_type == "pickup":
+                # Pickup: Square border with 'P' text
+                pygame.draw.rect(screen, col, pygame.Rect(
+                    cx, cy, self.cell_size, self.cell_size), 4)
+                # Add 'P' text in the center
+                font = pygame.font.Font(None, max(16, self.cell_size // 2))
+                text = font.render("P", True, col)
+                text_rect = text.get_rect(center=(cx + self.cell_size//2, cy + self.cell_size//2))
+                screen.blit(text, text_rect)
+                
+            elif marker_type == "dropoff":
+                # Dropoff: Filled circle with 'D' text
+                center_x = cx + self.cell_size // 2
+                center_y = cy + self.cell_size // 2
+                radius = self.cell_size // 3
+                pygame.draw.circle(screen, col, (center_x, center_y), radius)
+                # Add 'D' text in white
+                font = pygame.font.Font(None, max(16, self.cell_size // 2))
+                text = font.render("D", True, (255, 255, 255))
+                text_rect = text.get_rect(center=(center_x, center_y))
+                screen.blit(text, text_rect)
 
+        # Show active order markers (current task)
         if self.pinv.active:
-            draw_marker(self.pinv.active.pickup, (0, 200, 255))
-            draw_marker(self.pinv.active.dropoff, (255, 200, 0))
-        elif self.selected:
-            draw_marker(self.selected.pickup, (0, 120, 200))
-            draw_marker(self.selected.dropoff, (200, 140, 0))
+            # Only show pickup marker if package hasn't been picked up yet
+            if self.pinv.active.state == "accepted":
+                draw_enhanced_marker(self.pinv.active.pickup, (0, 255, 100), "pickup")  # Bright green
+            # Always show dropoff marker when package is active
+            draw_enhanced_marker(self.pinv.active.dropoff, (255, 100, 0), "dropoff")  # Bright orange
+        
+        # Show selected order markers (preview) - can be shown alongside active order
+        if self.selected and (not self.pinv.active or self.selected.id != self.pinv.active.id):
+            # Show selected order markers with different colors (only if different from active)
+            draw_enhanced_marker(self.selected.pickup, (100, 150, 255), "pickup")  # Light blue
+            draw_enhanced_marker(self.selected.dropoff, (255, 255, 100), "dropoff")  # Light yellow
 
     def _draw_hud(self, screen):
         # Dynamic HUD positioning (was fixed HUD_X)
@@ -379,6 +414,79 @@ class GameView(BaseView):
             left = f"{tag} {o.id} w{int(o.weight)} pr{int(o.priority)}"
             screen.blit(self.font.render(left, True, white), (x, y))
             y += int(line_height * 0.9)
+
+        # Controls instructions
+        controls_y = y + section_spacing // 2
+        screen.blit(self.font.render("Controls:", True, self.window.colors['GRAY']), (x, controls_y))
+        
+        controls_info = [
+            "TAB - Next order",
+            "Q - Previous order", 
+            "ENTER - Accept order",
+            "R - Switch active order",
+            "WASD/Arrows - Move",
+            "ESC - Pause"
+        ]
+        
+        controls_start_y = controls_y + line_height
+        small_font = pygame.font.Font(None, max(14, int(line_height * 0.7)))
+        
+        for i, control in enumerate(controls_info):
+            control_y = controls_start_y + i * int(line_height * 0.8)
+            screen.blit(small_font.render(control, True, (200, 200, 200)), (x, control_y))
+
+        # Order status legend with colors
+        legend_y = controls_start_y + len(controls_info) * int(line_height * 0.8) + line_height // 2
+        screen.blit(self.font.render("Markers:", True, self.window.colors['GRAY']), (x, legend_y))
+        
+        legend_start_y = legend_y + line_height
+        
+        # Active order markers (current task)
+        screen.blit(small_font.render("Active Order:", True, (255, 255, 255)), (x, legend_start_y))
+        active_y = legend_start_y + int(line_height * 0.8)
+        
+        # Draw pickup marker example
+        pickup_color = (0, 255, 100)  # Bright green
+        marker_size = int(line_height * 0.6)
+        pygame.draw.rect(screen, pickup_color, pygame.Rect(x, active_y, marker_size, marker_size), 2)
+        pickup_font = pygame.font.Font(None, max(12, marker_size // 2))
+        pickup_text = pickup_font.render("P", True, pickup_color)
+        screen.blit(pickup_text, (x + marker_size//4, active_y + marker_size//4))
+        screen.blit(small_font.render("Pickup (Green)", True, (200, 200, 200)), (x + marker_size + 5, active_y))
+        
+        # Draw dropoff marker example
+        dropoff_color = (255, 100, 0)  # Bright orange
+        dropoff_y = active_y + int(line_height * 0.8)
+        center_x = x + marker_size // 2
+        center_y = dropoff_y + marker_size // 2
+        pygame.draw.circle(screen, dropoff_color, (center_x, center_y), marker_size // 3)
+        dropoff_text = pickup_font.render("D", True, (255, 255, 255))
+        d_rect = dropoff_text.get_rect(center=(center_x, center_y))
+        screen.blit(dropoff_text, d_rect)
+        screen.blit(small_font.render("Dropoff (Orange)", True, (200, 200, 200)), (x + marker_size + 5, dropoff_y))
+        
+        # Selected order markers (preview)
+        selected_y = dropoff_y + int(line_height * 1.2)
+        screen.blit(small_font.render("Selected Order:", True, (255, 255, 255)), (x, selected_y))
+        selected_start_y = selected_y + int(line_height * 0.8)
+        
+        # Selected pickup marker
+        selected_pickup_color = (100, 150, 255)  # Light blue
+        pygame.draw.rect(screen, selected_pickup_color, pygame.Rect(x, selected_start_y, marker_size, marker_size), 2)
+        sel_pickup_text = pickup_font.render("P", True, selected_pickup_color)
+        screen.blit(sel_pickup_text, (x + marker_size//4, selected_start_y + marker_size//4))
+        screen.blit(small_font.render("Pickup (Blue)", True, (200, 200, 200)), (x + marker_size + 5, selected_start_y))
+        
+        # Selected dropoff marker
+        selected_dropoff_color = (255, 255, 100)  # Light yellow
+        sel_dropoff_y = selected_start_y + int(line_height * 0.8)
+        sel_center_x = x + marker_size // 2
+        sel_center_y = sel_dropoff_y + marker_size // 2
+        pygame.draw.circle(screen, selected_dropoff_color, (sel_center_x, sel_center_y), marker_size // 3)
+        sel_dropoff_text = pickup_font.render("D", True, (0, 0, 0))  # Black text on yellow
+        sel_d_rect = sel_dropoff_text.get_rect(center=(sel_center_x, sel_center_y))
+        screen.blit(sel_dropoff_text, sel_d_rect)
+        screen.blit(small_font.render("Dropoff (Yellow)", True, (200, 200, 200)), (x + marker_size + 5, sel_dropoff_y))
 
         # Toast positioning (was fixed at 700)
         if self.toast:

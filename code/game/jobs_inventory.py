@@ -38,6 +38,11 @@ class JobsInventory:
                 )
                 o.set_deadline_from_start(weather_start_iso)  # align to weather start_time
                 orders.append(o)
+        
+        # Sort orders by priority (descending) and then by payout (descending)
+        # Higher priority jobs appear first, and within same priority, higher paying jobs first
+        orders.sort(key=lambda order: (-order.priority, -order.payout))
+        
         self._orders = orders
 
     def all(self) -> List[Order]:
@@ -64,3 +69,13 @@ class JobsInventory:
         for o in self._orders:
             if o.is_expired(t):
                 o.state = "expired"
+    def cycle_selection_prev(self, t: float) -> Optional[Order]:
+        opts = self.selectable(t)
+        if not opts:
+            return None
+        # Adjust index backwards
+        if self._selected_index <= 0:
+            self._selected_index = len(opts) - 1
+        else:
+            self._selected_index -= 1
+        return opts[self._selected_index]
