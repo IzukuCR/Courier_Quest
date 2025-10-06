@@ -75,6 +75,31 @@
         }
     },
     {
+        "player_name": "sads",
+        "score": 1360,
+        "date": "2025-10-05T23:53:39.961125",
+        "stats": {
+            "total_earnings": 1110,
+            "goal": 1500.0,
+            "time_remaining": 234.25800000006635,
+            "reputation": 74.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 2,
+                "late": 3,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 2,
+            "late_deliveries": 3,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
         "player_name": "Player",
         "score": 1020,
         "date": "2025-10-05T23:05:07.301376",
