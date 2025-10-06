@@ -37,6 +37,25 @@ class PlayerInventory:
         o.state = "accepted"
         o.accepted_at = t
 
+        # Get current game time for deadline calculation
+        from .game import Game
+        game = Game()
+        elapsed_game_time = game._game_time_limit_s - game.get_game_time()
+
+        # Set deadlines based on priority - ALWAYS calculate from CURRENT time
+        # Priority 0 = 120s, Priority 1 = 90s, Priority 2+ = 60s
+        if o.priority == 0:
+            base_time = 120
+        elif o.priority == 1:
+            base_time = 90
+        else:
+            base_time = 60  # Priority 2+
+
+        # Set deadline to current elapsed time + allowed time
+        o.deadline_s = elapsed_game_time + base_time
+        print(
+            f"Setting deadline for {o.id}: current game time={elapsed_game_time:.1f}, deadline={o.deadline_s:.1f}")
+
         if self.active is None:
             self.active = o
             print(f"PlayerInventory: Set {o.id} as active order")
@@ -48,29 +67,6 @@ class PlayerInventory:
 
         # After accepting an order, reset the debug print flag
         self._debug_printed = False
-
-        # Fix deadline to be more reasonable (60-120s based on priority)
-        if hasattr(o, 'deadline_s') and o.deadline_s:
-            # If deadline is too long, adjust it to be more reasonable
-            elapsed_game_time = 0
-            from .game import Game
-            game = Game()
-            elapsed_game_time = game._game_time_limit_s - game.get_game_time()
-
-            if o.deadline_s - elapsed_game_time > 120:
-                # Set deadlines based on priority:
-                # Priority 0 = 120s, Priority 1 = 90s, Priority 2+ = 60s
-                if o.priority == 0:
-                    base_time = 120
-                elif o.priority == 1:
-                    base_time = 90  # Exactly 90 seconds for Priority 1
-                else:
-                    base_time = 60  # 60 seconds for Priority 2+
-
-                new_deadline = elapsed_game_time + base_time
-                print(
-                    f"Fixing deadline for {o.id}: was {o.deadline_s}, now {new_deadline}")
-                o.deadline_s = new_deadline
 
         return True
 
@@ -88,8 +84,6 @@ class PlayerInventory:
         distance = max(abs(px - pickup_x), abs(py - pickup_y))
         is_adjacent = distance <= 1
 
-        print(
-            f"Pickup check: Player({px}, {py}) vs Pickup({pickup_x}, {pickup_y}), distance={distance}, adjacent={is_adjacent}")
         return is_adjacent
 
     def is_adjacent_to_dropoff(self, px: int, py: int, order) -> bool:
@@ -103,133 +97,123 @@ class PlayerInventory:
         distance = max(abs(px - dropoff_x), abs(py - dropoff_y))
         is_adjacent = distance <= 1
 
-        print(
-            f"Dropoff check: Player({px}, {py}) vs Dropoff({dropoff_x}, {dropoff_y}), distance={distance}, adjacent={is_adjacent}")
         return is_adjacent
 
     def on_player_step(self, px: int, py: int, game_time_s: float) -> Optional[str]:
         if not self.active:
-            print(
-                f"PlayerInventory: No active order at player position ({px}, {py})")
             return None
 
-        # Get Game instance and player for reputation updates
         from .game import Game
         game = Game()
         player = game.get_player()
 
-        print(
-            f"PlayerInventory: Player at ({px}, {py}), active order: {self.active.id}, state: {self.active.state}")
-        print(
-            f"PlayerInventory: Order pickup: {self.active.pickup}, dropoff: {self.active.dropoff}")
+        # Calculate elapsed game time and deadline info once
+        elapsed_game_time = game._game_time_limit_s - game_time_s
+        deadline_elapsed = getattr(self.active, 'deadline_s', 0)
 
-        # Check for expiration
-        if self.active.is_expired(game_time_s) and self.active.state not in ("delivered", "cancelled"):
-            self.active.state = "expired"
+        # Track if we're in overtime (past deadline) but DON'T prevent actions
+        is_overtime = deadline_elapsed and elapsed_game_time > deadline_elapsed
+        overtime_seconds = max(0, elapsed_game_time -
+                               deadline_elapsed) if is_overtime else 0
 
-            # Update player reputation for lost/expired package
-            if player:
-                print(
-                    f"Player lost package {self.active.id} - applying reputation penalty")
-                rep_result = player.lose_package()
-                print(
-                    f"After loss: Player reputation = {player.reputation:.1f}")
-
-                # Check for game over due to low reputation
-                if player.is_game_over_by_reputation():
-                    game._is_playing = False  # End game when reputation < 20
-
-            return f"Priority {self.active.priority} job expired."
-
-        # Pickup - use adjacent check instead of exact position
-        if self.active.state == "accepted" and self.is_adjacent_to_pickup(px, py, self.active):
+        # Track overtime status but don't block actions
+        # Make sure we only mark as passed once, even after loading a saved game
+        if is_overtime and not hasattr(self.active, '_deadline_passed'):
             print(
-                f"PlayerInventory: Player is at/near pickup location for {self.active.id}")
+                f"DEBUG: Order {self.active.id} is in overtime (+{overtime_seconds:.1f}s)")
+            self.active._deadline_passed = True
+
+        # SIMPLIFIED PICKUP LOGIC - work regardless of deadline
+        if self.active.state == "accepted" and self.is_adjacent_to_pickup(px, py, self.active):
+            print(f"DEBUG: Player at pickup location for {self.active.id}")
+
+            # Simple weight check - no deadline check
             if self.carried_weight() + self.active.weight <= self.capacity_weight:
+                print(f"DEBUG: Weight OK, changing state to carrying")
+                # This is the critical part - update the state to carrying
                 self.active.state = "carrying"
                 self.active.picked_at = game_time_s
-                print(
-                    f"PlayerInventory: Successfully picked up {self.active.id}")
-                return f"Priority {self.active.priority} package picked up."
+
+                # Show overtime message if needed
+                if is_overtime:
+                    msg = f"Priority {self.active.priority} package picked up! ({overtime_seconds:.0f}s overtime)"
+                else:
+                    msg = f"Priority {self.active.priority} package picked up!"
+
+                return msg
             else:
-                print(
-                    f"PlayerInventory: Cannot pick up {self.active.id} - overweight")
                 return "Overweight! You can't pick up yet."
-        elif self.active.state == "accepted":
-            print(
-                f"PlayerInventory: Player not near pickup location. Player: ({px}, {py}), Pickup: {self.active.pickup}")
 
-        # Dropoff - use adjacent check instead of exact position
+        # SIMPLIFIED DROPOFF LOGIC - work regardless of deadline
         if self.active.state == "carrying" and self.is_adjacent_to_dropoff(px, py, self.active):
-            print(
-                f"PlayerInventory: Player is at/near dropoff location for {self.active.id}")
-            # Calculate elapsed game time for reputation system
-            elapsed_game_time = game._game_time_limit_s - game_time_s
-            # This should already be in elapsed time format
-            deadline_elapsed = self.active.deadline_s
+            print(f"DEBUG: Player at dropoff location for {self.active.id}")
 
+            # Calculate overtime for UI and penalties
+            elapsed_game_time = game._game_time_limit_s - game_time_s
+            deadline_elapsed = getattr(self.active, 'deadline_s', 0)
+            overtime_seconds = max(0, elapsed_game_time - deadline_elapsed)
+            is_late = overtime_seconds > 0
+
+            if is_late:
+                print(
+                    f"DEBUG: Late delivery, overtime = {overtime_seconds:.1f}s")
+
+            # Process delivery (standard logic)
             if self.active in self.accepted:
                 self.accepted.remove(self.active)
             done = self.active
             self.active = None
 
-            # Clear undo history and reset idle time on delivery
+            # Clear undo history and reset idle time
             if player and hasattr(player, 'clear_undo_on_delivery'):
                 player.clear_undo_on_delivery()
-                # Reset idle time on delivery (player was "active")
                 if hasattr(player, 'idle_time'):
                     player.idle_time = 0.0
 
-            # Get base payout before any multipliers
+            # Initialize variables with default values
+            payment_multiplier = 1.0
+            reputation_msg = ""
+
+            # Get base payout
             base_payout = done.payout
 
-            # Calculate if delivery was early, on time, or late - print once per order
-            if deadline_elapsed and elapsed_game_time is not None and not self._debug_printed:
-                time_diff = deadline_elapsed - elapsed_game_time
-                print(
-                    f"Debug - Delivery timing: deadline_elapsed={deadline_elapsed:.1f}, elapsed_game_time={elapsed_game_time:.1f}, diff={time_diff:.1f}s")
-                self._debug_printed = True  # Only print once
-
-            # Update reputation based on delivery timing
+            # Update reputation based on timing
             if player:
-                # Log before update
                 old_rep = player.reputation
-                print(f"Before delivery: Player reputation = {old_rep:.1f}")
-
-                # Pass elapsed game time values to reputation system
-                rep_result = player.update_reputation_delivery(
-                    elapsed_game_time, deadline_elapsed)
-
-                # Log after update
                 print(
-                    f"After delivery: Player reputation = {player.reputation:.1f}, change = {player.reputation - old_rep:.1f}")
+                    f"DEBUG: Updating reputation for delivery. Overtime = {overtime_seconds:.1f}s")
 
-                # Apply payment multiplier based on reputation
+                # Apply reputation change
+                rep_result = player.update_reputation_delivery(
+                    elapsed_game_time, deadline_elapsed,
+                    overtime_seconds=overtime_seconds)
+
+                print(
+                    f"DEBUG: Reputation change: {player.reputation - old_rep:.1f}")
+
+                # Apply payment multiplier
                 payment_multiplier = player.get_payment_multiplier()
                 done.payout *= payment_multiplier
 
-                # Check for game over due to low reputation
+                # Check for game over
                 if player.is_game_over_by_reputation():
-                    game._is_playing = False  # End game when reputation < 20
+                    game._is_playing = False
                     return f"GAME OVER: Reputation too low (<20)!"
 
-                # Add reputation change information to message
+                # Format message
                 reputation_msg = rep_result.get("message", "")
 
-                # Prepare payout message with multiplier info if applicable
-                payout_msg = f"+${done.payout:.0f}"
-                if payment_multiplier > 1.0:
-                    payout_msg += f" (includes +5% excellence bonus)"
+            # Prepare payout message
+            payout_msg = f"+${done.payout:.0f}"
+            if payment_multiplier > 1.0:
+                payout_msg += f" (includes +5% excellence bonus)"
 
-            # Add to scoreboard
+            # Update scoreboard
             if hasattr(game, '_scoreboard'):
                 game._scoreboard.add_score(int(done.payout))
 
-            # Return detailed delivery message with reputation effects
-            if player and payment_multiplier > 1.0:
-                return f"Priority {done.priority} job completed! {payout_msg}\n{reputation_msg}"
-            else:
-                return f"Priority {done.priority} job completed! {payout_msg}\n{reputation_msg}"
+            # Return success message - MUST be inside the dropoff block
+            return f"Priority {done.priority} job completed! {payout_msg}\n{reputation_msg}"
 
         return None
 
@@ -255,10 +239,22 @@ class PlayerInventory:
             return "No order to cancel"
 
         if target_order.state in ("accepted", "carrying"):
+            order_name = target_order.id
+            order_priority = target_order.priority
+
             # Apply reputation penalty
             if player:
+                # Log before update
+                old_rep = player.reputation
+                print(
+                    f"Before order discard: Player reputation = {old_rep:.1f}")
+
                 rep_result = player.cancel_order()
                 reputation_msg = rep_result.get("message", "")
+
+                # Log after update
+                print(
+                    f"After order discard: Player reputation = {player.reputation:.1f}, change = {player.reputation - old_rep:.1f}")
 
                 # Check for game over due to low reputation
                 if player.is_game_over_by_reputation():
@@ -278,10 +274,15 @@ class PlayerInventory:
                 # Select next order as active if available
                 if self.accepted:
                     self.active = self.accepted[0]
+                    next_message = f" | Next active: {self.active.id}"
+                else:
+                    next_message = " | No more orders"
+            else:
+                next_message = ""
 
-            return f"Order {target_order.id} cancelled! {reputation_msg}"
+            return f"Order {order_name} (Priority {order_priority}) discarded! {reputation_msg}{next_message}"
 
-        return f"Cannot cancel order in state: {target_order.state}"
+        return f"Cannot discard order in state: {target_order.state}"
 
     def next_active(self) -> Optional[Order]:
         """Select next active order among accepted ones."""

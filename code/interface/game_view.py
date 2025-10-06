@@ -172,29 +172,21 @@ class GameView(BaseView):
                 if self.selected:
                     self.toast, self.toast_timer = f"Selected {self.selected.id}", 2.0
 
-            elif event.key == pygame.K_e:
-                # Manual scroll down
-                if self.jobs.scroll_down(self.game.get_game_time()):
-                    # Update selection to match new visible area
-                    self.selected = self.jobs.get_selected(
-                        self.game.get_game_time())
-
+            # UPDATED KEY: Use 'X' to discard (cancel) the active order
             elif event.key == pygame.K_x:
-                # Manual scroll up
-                if self.jobs.scroll_up(self.game.get_game_time()):
-                    # Update selection to match new visible area
-                    self.selected = self.jobs.get_selected(
-                        self.game.get_game_time())
-
-            elif event.key == pygame.K_RETURN:
-                if self.selected:
-                    if self.pinv.accept(self.selected, self.game.get_game_time()):
-                        self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
-                    else:
-                        self.toast, self.toast_timer = f"Could not accept {self.selected.id}", 2.0
+                # Discard active order with reputation penalty
+                if self.pinv.active:
+                    result = self.pinv.cancel_order()
+                    self.toast, self.toast_timer = result, 2.0
+                    # Check for game over
+                    if "GAME OVER" in result:
+                        # You might want to switch to a game over view here
+                        pass
+                else:
+                    self.toast, self.toast_timer = "No active order to discard", 2.0
 
             elif event.key == pygame.K_c:
-                # Cancel active order with reputation penalty
+                # Cancel active order with reputation penalty (alternative key)
                 if self.pinv.active:
                     result = self.pinv.cancel_order()
                     self.toast, self.toast_timer = result, 2.0
@@ -216,6 +208,13 @@ class GameView(BaseView):
                     self.toast, self.toast_timer = f"Move undone! ({remaining} undos left)", 2.0
                 else:
                     self.toast, self.toast_timer = "Cannot undo move", 2.0
+
+            elif event.key == pygame.K_RETURN:
+                if self.selected:
+                    if self.pinv.accept(self.selected, self.game.get_game_time()):
+                        self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
+                    else:
+                        self.toast, self.toast_timer = f"Could not accept {self.selected.id}", 2.0
 
             # Safety check for player existence
             elif self.player:
@@ -588,34 +587,50 @@ class GameView(BaseView):
             screen.blit(self.font.render(
                 order_text, True, white), (x, order_info_y))
 
-            # Time left calculation - FIXED with proper time formatting
+            # Time left calculation - Show overtime with + sign when deadline has passed
             time_left_y = order_info_y + 25
             if self.pinv.active.deadline_s:
                 # Calculate elapsed game time (600 - current countdown = elapsed time)
                 elapsed_game_time = self.game._game_time_limit_s - self.game.get_game_time()
 
                 # Calculate remaining time until deadline
-                remaining = max(
-                    0, self.pinv.active.deadline_s - elapsed_game_time)
+                time_remaining = self.pinv.active.deadline_s - elapsed_game_time
 
-                # Prevent debug message spam - only log if values change significantly
-                if not hasattr(self, '_last_deadline_debug') or abs(self._last_deadline_debug - remaining) > 5:
-                    print(
-                        f"Debug - Order deadline: deadline={self.pinv.active.deadline_s:.1f}, elapsed={elapsed_game_time:.1f}, remaining={remaining:.1f}s")
-                    self._last_deadline_debug = remaining
+                # Check if deadline has passed (negative time remaining = overtime)
+                if time_remaining < 0:
+                    # Overtime - show with + sign
+                    overtime = abs(time_remaining)
 
-                # Format nicely with minutes:seconds if over 60 seconds
-                if remaining > 60:
-                    mins = int(remaining // 60)
-                    secs = int(remaining % 60)
-                    time_left_text = f"Time left: {mins}m {secs}s"
+                    # Format nicely with minutes:seconds if over 60 seconds
+                    if overtime > 60:
+                        mins = int(overtime // 60)
+                        secs = int(overtime % 60)
+                        time_left_text = f"Overtime: +{mins}m {secs}s"
+                    else:
+                        time_left_text = f"Overtime: +{overtime:.0f}s"
+
+                    # Use red color for overtime
+                    time_color = (255, 50, 50)
                 else:
-                    time_left_text = f"Time left: {remaining:.0f}s"
+                    # Still on time - show countdown
+                    remaining = max(0, time_remaining)
+
+                    # Format nicely with minutes:seconds if over 60 seconds
+                    if remaining > 60:
+                        mins = int(remaining // 60)
+                        secs = int(remaining % 60)
+                        time_left_text = f"Time left: {mins}m {secs}s"
+                    else:
+                        time_left_text = f"Time left: {remaining:.0f}s"
+
+                    # Use normal color for countdown
+                    time_color = white
             else:
                 time_left_text = "No deadline"
+                time_color = white
 
             screen.blit(self.font.render(time_left_text,
-                        True, white), (x, time_left_y))
+                        True, time_color), (x, time_left_y))
         else:
             no_order_y = active_order_y + 30
             screen.blit(self.font.render("No active order",
@@ -763,11 +778,13 @@ class GameView(BaseView):
         screen.blit(small_font.render("Instructions", True,
                     (128, 128, 128)), (x, instructions_y))
 
+        # Updated instructions
         instructions = [
             "TAB - Next job",
             "Q - Previous job",
-            "E/X - Manual scroll",
             "ENTER - Accept job",
+            "X - Discard active order",  # Updated key for discarding orders
+            "R - Switch active order",
             "WASD - Move",
             "Z - Undo",
             "ESC - Pause"

@@ -242,7 +242,11 @@ class GameSaveManager:
                     'deadline_s': order.deadline_s,
                     # Save release tracking flags
                     '_was_released': getattr(order, '_was_released', False),
-                    '_last_debug_time': getattr(order, '_last_debug_time', None)
+                    '_last_debug_time': getattr(order, '_last_debug_time', None),
+                    # Save overtime tracking flags
+                    '_deadline_passed': getattr(order, '_deadline_passed', False),
+                    '_already_expired': getattr(order, '_already_expired', False),
+                    '_deadline_debug_printed': getattr(order, '_deadline_debug_printed', False)
                 }
                 jobs_state['orders'].append(order_data)
 
@@ -441,7 +445,7 @@ class GameSaveManager:
             jobs._scroll_offset = jobs_data.get('scroll_offset', 0)
             jobs._visible_count = jobs_data.get('visible_count', 3)
 
-            # Restore orders with correct constructor parameters - FIX THE ORDER RESTORATION
+            # Restore orders with correct constructor parameters and overtime flags
             print("GameSaveManager: Restoring orders...")
             from ..core.order import Order
             jobs._orders = []
@@ -477,6 +481,14 @@ class GameSaveManager:
                         order._was_released = order_data['_was_released']
                     if '_last_debug_time' in order_data and order_data['_last_debug_time']:
                         order._last_debug_time = order_data['_last_debug_time']
+
+                    # Restore overtime tracking flags
+                    if '_deadline_passed' in order_data:
+                        order._deadline_passed = order_data['_deadline_passed']
+                    if '_already_expired' in order_data:
+                        order._already_expired = order_data['_already_expired']
+                    if '_deadline_debug_printed' in order_data:
+                        order._deadline_debug_printed = order_data['_deadline_debug_printed']
 
                     jobs._orders.append(order)
 

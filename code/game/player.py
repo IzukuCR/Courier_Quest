@@ -637,7 +637,7 @@ class Player:
         """Get undo system information for UI display"""
         return self.undo_system.get_info()
 
-    def update_reputation_delivery(self, delivery_time, deadline, is_canceled=False, is_lost=False):
+    def update_reputation_delivery(self, delivery_time, deadline, is_canceled=False, is_lost=False, overtime_seconds=0):
         """
         Update reputation based on delivery outcome
 
@@ -646,6 +646,7 @@ class Player:
             deadline: Deadline for the delivery (elapsed game time)
             is_canceled: Whether the order was canceled
             is_lost: Whether the package was lost/expired
+            overtime_seconds: How many seconds late the delivery was (if applicable)
 
         Returns:
             dict: Information about reputation change
@@ -653,9 +654,6 @@ class Player:
         old_reputation = self.reputation
         reputation_change = 0
         message = ""
-
-        print(
-            f"DEBUG REPUTATION: delivery_time={delivery_time:.1f}, deadline={deadline:.1f}")
 
         if is_canceled:
             # Canceling an accepted order
@@ -665,29 +663,56 @@ class Player:
             self.daily_delivery_stats["canceled"] += 1
 
         elif is_lost:
-            # Losing/expiring a package
-            reputation_change = -6
-            message = "Package lost/expired: -6 reputation"
-            self.successful_deliveries_streak = 0
+            # Losing/expiring a package - use overtime calculation for penalty
+            # but track as "lost" in statistics
             self.daily_delivery_stats["lost"] += 1
+            self.successful_deliveries_streak = 0
+
+            # Apply half penalty for first late delivery if reputation ≥ 85
+            apply_half_penalty = (
+                self.reputation >= 85 and not self.had_first_late_delivery_today)
+
+            # Use explicit overtime for penalties (just like late deliveries)
+            if overtime_seconds <= 30:
+                base_penalty = -2
+                penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                reputation_change = penalty
+                message = f"Expired package (overtime {overtime_seconds:.1f}s): {penalty} reputation"
+            elif overtime_seconds <= 120:
+                base_penalty = -5
+                penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                reputation_change = penalty
+                message = f"Expired package (overtime {overtime_seconds:.1f}s): {penalty} reputation"
+            else:
+                base_penalty = -10
+                penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                reputation_change = penalty
+                message = f"Expired package (overtime {overtime_seconds:.1f}s): {penalty} reputation"
+
+            # Mark first late delivery used
+            if apply_half_penalty:
+                self.had_first_late_delivery_today = True
 
         else:
             # Normal delivery - check timing
-            # delivery_time and deadline are both in elapsed game time
+            # Calculate time remaining (could be negative if late)
             time_remaining = deadline - delivery_time
-            early_threshold = deadline * 0.2  # 20% of the total deadline time
+            # 20% of the total deadline time
+            early_threshold = (
+                deadline - (delivery_time - overtime_seconds)) * 0.2
+            is_late = overtime_seconds > 0
 
             print(
-                f"DEBUG REPUTATION: time_remaining={time_remaining:.1f}, early_threshold={early_threshold:.1f}")
+                f"DEBUG REPUTATION: time_remaining={time_remaining:.1f}, early_threshold={early_threshold:.1f}, overtime={overtime_seconds:.1f}s")
 
-            if time_remaining >= early_threshold:
+            if not is_late and time_remaining >= early_threshold:
                 # Early delivery (≥20% before deadline)
                 reputation_change = 5
                 message = "Early delivery: +5 reputation"
                 self.successful_deliveries_streak += 1
                 self.daily_delivery_stats["early"] += 1
 
-            elif time_remaining >= 0:
+            elif not is_late:
                 # On-time delivery
                 reputation_change = 3
                 message = "On-time delivery: +3 reputation"
@@ -695,29 +720,29 @@ class Player:
                 self.daily_delivery_stats["on_time"] += 1
 
             else:
-                # Late delivery
-                late_seconds = -time_remaining  # Convert to positive number
+                # Late delivery - use explicit overtime calculation
                 self.daily_delivery_stats["late"] += 1
 
                 # Apply half penalty for first late delivery if reputation ≥ 85
                 apply_half_penalty = (
                     self.reputation >= 85 and not self.had_first_late_delivery_today)
 
-                if late_seconds <= 30:
+                # Use exact overtime for penalties
+                if overtime_seconds <= 30:
                     base_penalty = -2
                     penalty = base_penalty / 2 if apply_half_penalty else base_penalty
                     reputation_change = penalty
-                    message = f"Slightly late delivery ({late_seconds:.1f}s): {penalty} reputation"
-                elif late_seconds <= 120:
+                    message = f"Slightly late delivery ({overtime_seconds:.1f}s): {penalty} reputation"
+                elif overtime_seconds <= 120:
                     base_penalty = -5
                     penalty = base_penalty / 2 if apply_half_penalty else base_penalty
                     reputation_change = penalty
-                    message = f"Late delivery ({late_seconds:.1f}s): {penalty} reputation"
+                    message = f"Late delivery ({overtime_seconds:.1f}s): {penalty} reputation"
                 else:
                     base_penalty = -10
                     penalty = base_penalty / 2 if apply_half_penalty else base_penalty
                     reputation_change = penalty
-                    message = f"Very late delivery ({late_seconds:.1f}s): {penalty} reputation"
+                    message = f"Very late delivery ({overtime_seconds:.1f}s): {penalty} reputation"
 
                 # Mark first late delivery used
                 if apply_half_penalty:
@@ -783,9 +808,30 @@ class Player:
         """Handle reputation penalty when player cancels an order"""
         return self.update_reputation_delivery(0, 0, is_canceled=True)
 
-    def lose_package(self):
-        """Handle reputation penalty when player loses a package or it expires"""
-        return self.update_reputation_delivery(0, 0, is_lost=True)
+    def lose_package(self, elapsed_game_time=None, deadline=None):
+        """
+        Handle reputation penalty when player loses a package or it expires
+
+        Args:
+            elapsed_game_time: Current elapsed game time when package was lost
+            deadline: Original deadline for the package
+        """
+        # Get current game time if not provided
+        if elapsed_game_time is None or deadline is None:
+            from .game import Game
+            game = Game()
+            elapsed_game_time = game._game_time_limit_s - game.get_game_time()
+            # Default: consider as 5 minutes late if no deadline given
+            deadline = elapsed_game_time - 300
+
+        # Calculate overtime - how late the delivery is
+        overtime_seconds = max(0, elapsed_game_time - deadline)
+
+        # Pass the overtime to the reputation system
+        return self.update_reputation_delivery(
+            elapsed_game_time, deadline,
+            overtime_seconds=overtime_seconds,
+            is_lost=True)
 
     def get_reputation(self) -> float:
         """Get current reputation value"""

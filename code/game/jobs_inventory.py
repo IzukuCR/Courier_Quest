@@ -59,15 +59,12 @@ class JobsInventory:
 
     def selectable(self, t: float) -> List[Order]:
         """
-        Get orders that are available for selection based on:
-        1. State is "available"
-        2. Not expired
-        3. Release time has passed (game elapsed time >= order release time)
+        Get orders that are available for selection.
+        CRITICAL: Orders must be selectable regardless of deadline!
 
         Args:
             t: Current game time remaining (countdown from 600s)
         """
-        # Calculate elapsed game time (time from the start of the game)
         from .game import Game
         game = Game()
         elapsed_game_time = game._game_time_limit_s - t
@@ -75,32 +72,33 @@ class JobsInventory:
         available_orders = []
 
         for o in self._orders:
-            if o.state == "available" and not o.is_expired(t):
+            # ONLY check if state is "available" - ignore deadline completely!
+            if o.state == "available":
                 # Check if release time has passed
                 order_release_time = getattr(o, 'release_time', 0)
 
                 if elapsed_game_time >= order_release_time:
-                    # Order is available - check if it just became available
+                    # Order is available for selection - add to list
+                    available_orders.append(o)
+
+                    # Log first release
                     if not hasattr(o, '_was_released') or not o._was_released:
                         print(
-                            f"Order {o.id} is now available at elapsed time {elapsed_game_time:.1f}s (release time: {order_release_time}s)")
+                            f"Order {o.id} is now available at elapsed time {elapsed_game_time:.1f}s")
                         o._was_released = True
+            else:
+                # Order is not yet available
+                if not hasattr(o, '_was_released'):
+                    o._was_released = False
 
-                    # Add to available orders
-                    available_orders.append(o)
-                else:
-                    # Order is not yet available
-                    if not hasattr(o, '_was_released'):
-                        o._was_released = False
-
-                    # Debug: How much time until order becomes available (less frequent)
-                    time_until_release = order_release_time - elapsed_game_time
-                    if hasattr(o, '_last_debug_time') and elapsed_game_time - o._last_debug_time > 30:
-                        print(
-                            f"Order {o.id} will be available in {time_until_release:.1f}s")
-                        o._last_debug_time = elapsed_game_time
-                    elif not hasattr(o, '_last_debug_time'):
-                        o._last_debug_time = elapsed_game_time
+                # Debug: How much time until order becomes available (less frequent)
+                time_until_release = order_release_time - elapsed_game_time
+                if hasattr(o, '_last_debug_time') and elapsed_game_time - o._last_debug_time > 30:
+                    print(
+                        f"Order {o.id} will be available in {time_until_release:.1f}s")
+                    o._last_debug_time = elapsed_game_time
+                elif not hasattr(o, '_last_debug_time'):
+                    o._last_debug_time = elapsed_game_time
 
         # Sort available orders by priority (descending) and payout (descending)
         available_orders.sort(
@@ -219,8 +217,11 @@ class JobsInventory:
         return False
 
     def mark_expired(self, t: float) -> None:
+        """Mark orders as expired only if they meet is_expired() criteria
+        IMPORTANT: Do NOT expire orders just because deadline has passed!"""
         for o in self._orders:
-            if o.is_expired(t):
+            if o.is_expired(t) and o.state != "expired":
+                print(f"Order {o.id} marked as expired by JobsInventory")
                 o.state = "expired"
 
     def reset_for_new_game(self):
@@ -256,27 +257,9 @@ class JobsInventory:
             if hasattr(order, '_last_debug_time'):
                 delattr(order, '_last_debug_time')
 
-        print(
-            f"JobsInventory: Reset complete - {len(self._orders)} orders loaded")
-        order.picked_at = None
-        order.delivered_at = None
-
-        # Reset release tracking flags
-        order_release_time = getattr(order, 'release_time', 0)
-
-        if order_release_time == 0:
-            # Orders with release_time = 0 should be immediately available
-            order._was_released = True
-            print(
-                f"  Reset order {order.id} - IMMEDIATELY AVAILABLE (release_time: 0s)")
-        else:
-            # Orders with release_time > 0 need to wait
-            order._was_released = False
-            print(
-                f"  Reset order {order.id} - will be available in {order_release_time}s")
-            # Clean up debug timing
-            if hasattr(order, '_last_debug_time'):
-                delattr(order, '_last_debug_time')
+            # Clear any deadline-passed flags
+            if hasattr(order, '_deadline_passed'):
+                delattr(order, '_deadline_passed')
 
         print(
             f"JobsInventory: Reset complete - {len(self._orders)} orders loaded")
