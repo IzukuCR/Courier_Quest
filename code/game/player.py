@@ -32,7 +32,7 @@ class Player:
         self.reputation = 70  # Player reputation
         self.streak = 0  # Player streak
         self.weight = 8  # Current weight carried
-        self.base_speed = 10.0  # v0 = 3 tiles/seg
+        self.base_speed = 3.0  # v0 = 3 tiles/seg
         self.current_speed = 3.0  # Current speed (modified by conditions)
         self.resistance_state = "tired"  # "normal", "tired", "exhausted"
 

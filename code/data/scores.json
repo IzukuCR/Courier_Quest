@@ -126,6 +126,31 @@
     },
     {
         "player_name": "eze",
+        "score": 1349,
+        "date": "2025-10-06T02:23:06.723583",
+        "stats": {
+            "total_earnings": 1136,
+            "goal": 1500.0,
+            "time_remaining": 281.5800000000579,
+            "reputation": 97.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 5,
+                "late": 0,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 5,
+            "late_deliveries": 0,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
+        "player_name": "eze",
         "score": 1340,
         "date": "2025-10-06T01:02:15.444543",
         "stats": {
