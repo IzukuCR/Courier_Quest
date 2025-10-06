@@ -1,14 +1,39 @@
-"""Order module for managing delivery orders and their states."""
+"""
+Order module for managing delivery orders and their states.
+
+This module contains the Order class which represents a single delivery
+job in the game. Each order has pickup and dropoff locations, payment
+amount, and deadline information.
+"""
 
 from typing import List, Optional, Tuple
 
 
 class Order:
-    """Represents a delivery order in the game"""
+    """
+    Represents a delivery order in the game.
+    
+    This class stores all the information about a delivery job,
+    like where to pick it up, where to drop it off, how much
+    money you get, and when it needs to be delivered.
+    """
 
     def __init__(self, id: str, pickup: Tuple[int, int], dropoff: Tuple[int, int],
                  payout: float = 0.0, deadline_iso: str = None, weight: float = 0.0,
                  priority: int = 0, release_time: float = 0.0):
+        """
+        Create a new delivery order.
+        
+        Args:
+            id: Unique identifier for this order
+            pickup: (x, y) coordinates where to pick up the package
+            dropoff: (x, y) coordinates where to deliver the package
+            payout: How much money you get for completing this order
+            deadline_iso: When the order expires (in ISO format)
+            weight: How heavy the package is
+            priority: How important this order is (higher = more important)
+            release_time: When this order becomes available
+        """
         self.id: str = id
         self.pickup: Tuple[int, int] = pickup
         self.dropoff: Tuple[int, int] = dropoff

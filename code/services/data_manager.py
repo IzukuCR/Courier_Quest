@@ -1,3 +1,11 @@
+"""
+Data Manager module for handling game data from files and APIs.
+
+This module manages all the game data like city maps, job listings,
+weather information, and player scores. It can get data from the
+internet or use local backup files if needed.
+"""
+
 import json
 from pathlib import Path
 from datetime import datetime
@@ -5,6 +13,14 @@ from .api_client import APIClient
 
 
 class DataManager:
+    """
+    Manages all game data from files and internet sources.
+    
+    This class handles loading and saving game data. It uses
+    the singleton pattern so there's only one data manager
+    for the entire game. It tries to get fresh data from the
+    internet but falls back to local files if needed.
+    """
     _instance = None
     _initialized = False
 
@@ -16,6 +32,12 @@ class DataManager:
     SCORES_JSON = DATA_DIR / "scores.json"
 
     def __init__(self):
+        """
+        Initialize the data manager (singleton pattern).
+        
+        This only runs once for the entire program since
+        we use the singleton pattern.
+        """
         if not DataManager._initialized:
             self.api_client = APIClient()
             DataManager._initialized = True

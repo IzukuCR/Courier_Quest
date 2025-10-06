@@ -482,33 +482,23 @@ class Game:
         Returns: (is_game_over, reason)
         where reason can be: "victory", "time_up", "reputation", "no_jobs"
         """
-        # Check if time is up
-        if self._game_time_s <= 0:
-            # Check if goal was reached before time ran out
-            current_score = self._scoreboard.get_score() if hasattr(self, '_scoreboard') else 0
-            if current_score >= self._goal:
-                return True, "victory"
-            else:
-                return True, "time_up"
-
-        # Check if goal has been reached (victory condition)
+        # Always check victory condition FIRST - this is the most important
         current_score = self._scoreboard.get_score() if hasattr(self, '_scoreboard') else 0
         if current_score >= self._goal:
             return True, "victory"
+
+        # Check if time is up
+        if self._game_time_s <= 0:
+            return True, "time_up"
 
         # Check reputation too low
         if self._player and self._player.is_game_over_by_reputation():
             return True, "reputation"
 
-        # NEW: Check if there are no more jobs to do
+        # Only check no more jobs if goal hasn't been reached
         no_more_jobs = self._check_no_more_jobs_available()
         if no_more_jobs:
-            # If no more jobs and goal reached - victory
-            if current_score >= self._goal:
-                return True, "victory"
-            # If no more jobs but goal not reached - loss
-            else:
-                return True, "no_jobs"
+            return True, "no_jobs"
 
         # No game over condition met
         return False, ""

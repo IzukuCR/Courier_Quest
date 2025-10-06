@@ -1,7 +1,22 @@
+"""
+Weather system module for dynamic weather effects.
+
+This module handles the weather in the game. Different weather
+conditions affect how fast the player can move. The weather
+changes over time using probability patterns.
+"""
+
 import datetime
 
 
 class Weather:
+    """
+    Manages weather conditions and their effects on gameplay.
+    
+    This class handles changing weather conditions that affect
+    the player's movement speed. Weather changes based on
+    probability patterns from weather data.
+    """
     # Speed multipliers for bicycle based on weather conditions
     SPEED_MULTIPLIERS = {
         "clear": 1.00,
@@ -15,8 +30,13 @@ class Weather:
         "cold": 0.92
     }
 
-    def __init__(self,):
-
+    def __init__(self):
+        """
+        Create a new weather system.
+        
+        Sets up the weather with default clear conditions
+        and prepares to load weather patterns from data files.
+        """
         self.city = "Unknown"
         self.initial_condition = {}
         self.conditions = ["clear"]
@@ -41,6 +61,13 @@ class Weather:
         return self.current_intensity
 
     def get_speed_multiplier(self):
+        """
+        Get how fast the player can move in current weather.
+        
+        Returns a number between 0 and 1. For example:
+        - 1.0 = normal speed (clear weather)
+        - 0.75 = 75% speed (storm)
+        """
         # Default to 1.0 if condition not found
         return self.SPEED_MULTIPLIERS.get(self.current_condition, 1.0)
 

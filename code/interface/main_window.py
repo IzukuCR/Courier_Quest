@@ -1,9 +1,32 @@
+"""
+Main Window module for the game's main display window.
+
+This module creates and manages the main game window. It handles
+window sizing, scaling for different screen sizes, and switching
+between different game views like menus and gameplay.
+"""
+
 import pygame
 import sys
 
 
 class MainWindow:
+    """
+    Main application window that displays the game.
+    
+    This class creates the pygame window and manages switching
+    between different screens like the main menu, game view,
+    and settings. It also handles window resizing.
+    """
     def __init__(self, width=None, height=None, title="Courier Quest"):
+        """
+        Create a new main window.
+        
+        Args:
+            width: Window width (auto-calculated if None)
+            height: Window height (auto-calculated if None)
+            title: Window title text
+        """
         pygame.init()
 
         # Get screen resolution for responsive design

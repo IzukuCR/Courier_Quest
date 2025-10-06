@@ -1,10 +1,31 @@
+"""
+Jobs inventory module for managing available delivery orders.
+
+This module handles all the delivery jobs that are available to pick up.
+It loads jobs from data files, sorts them by priority or payment,
+and lets the player browse through them to choose which ones to accept.
+"""
+
 from typing import List, Optional
 from ..services.data_manager import DataManager
 from ..core.order import Order
 
 
 class JobsInventory:
+    """
+    Manages the list of available delivery jobs.
+    
+    This class handles loading jobs from files, sorting them,
+    and letting the player scroll through them to see which
+    jobs are available to accept.
+    """
     def __init__(self, weather_start_iso: Optional[str]):
+        """
+        Create a new jobs inventory.
+        
+        Args:
+            weather_start_iso: When the weather system started (for timing)
+        """
         self._orders: List[Order] = []
         self._selected_index: int = 0
         self._scroll_offset: int = 0  # Top visible item index

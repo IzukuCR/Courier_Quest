@@ -1,18 +1,30 @@
-"""City module for managing city data and navigation."""
+"""
+City module for managing city data and navigation.
+
+This module handles the city map which is like a grid of tiles.
+Each tile can be a road, building, or other type of terrain.
+The player moves around this grid to deliver packages.
+"""
 
 from ..services.data_manager import DataManager
 from pathlib import Path
 
 
 class City:
-    """Represents a city with tiles, legend, and navigation capabilities."""
+    """
+    Represents a city with tiles and navigation.
+    
+    This class manages the city map which is a 2D grid of tiles.
+    It helps check if you can move to certain locations and
+    calculates distances between points.
+    """
 
     def __init__(self, city_data):
-        """Initialize a City instance with city data.
+        """
+        Create a new city from city data.
         
         Args:
-            city_data (dict): Dictionary containing city information including
-                             name, version, dimensions, tiles, legend, and goal.
+            city_data: Dictionary with city info like name, tiles, and legend
         """
         self.name = city_data.get("name", "Unknown")
         self.version = city_data.get("version", "1.0")

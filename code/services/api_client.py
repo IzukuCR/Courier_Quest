@@ -1,3 +1,11 @@
+"""
+API Client module for fetching game data from external sources.
+
+This module handles getting data from the internet like city maps,
+available jobs, and weather information. If the internet is not
+available, the game will use local backup files instead.
+"""
+
 try:
     import requests
     REQUESTS_AVAILABLE = True
@@ -12,6 +20,23 @@ WEATHER_URL_BURST = "https://tigerds-api.kindflower-ccaf48b6.eastus.azurecontain
 
 
 class APIClient:
+    """
+    Handles requests to external APIs for game data.
+    
+    This class gets data from the internet like city maps and
+    job listings. If the internet connection fails, the game
+    can still work using local backup files.
+    """
+
+    @staticmethod
+    def is_available():
+        """
+        Check if API requests are available.
+        
+        Returns:
+            bool: True if we can make internet requests, False otherwise
+        """
+        return REQUESTS_AVAILABLE
 
     @staticmethod
     def get_map_data():

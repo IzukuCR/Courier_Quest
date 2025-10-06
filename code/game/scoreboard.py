@@ -1,8 +1,29 @@
+"""
+Scoreboard module for tracking player scores and statistics.
+
+This module handles the scoring system for the game. It keeps track
+of how much money the player earns, their reputation, and calculates
+a final score based on their performance.
+"""
+
 from ..services.data_manager import DataManager
 
 
 class Scoreboard:
+    """
+    Manages player scoring and game statistics.
+    
+    This class keeps track of the player's score, money earned,
+    and other game statistics. It can calculate a final score
+    and save it to compare with other games.
+    """
     def __init__(self, name=""):
+        """
+        Create a new scoreboard for a player.
+        
+        Args:
+            name: The player's name (optional)
+        """
         self.score = 0
         self.player_name = name
         self.stats = {
@@ -17,23 +38,59 @@ class Scoreboard:
         }
 
     def set_player_name(self, name):
+        """
+        Set the player's name.
+        
+        Args:
+            name: The player's name as a string
+        """
         self.player_name = name
 
     def add_score(self, points):
+        """
+        Add points to the current score.
+        
+        Args:
+            points: Number of points to add
+        """
         self.score += points
 
     def get_score(self):
+        """
+        Get the current score.
+        
+        Returns:
+            int: Current score value
+        """
         return self.score
 
     def reset_score(self):
-        """Reset score to 0"""
+        """Reset score back to 0."""
         self.score = 0
 
     def get_player_name(self):
         return self.player_name
 
     def get_final_score(self, money, reputation, successful_deliveries, late_deliveries, lost_packages):
-        """Calculate final score based on player performance"""
+        """
+        Calculate final score based on player performance.
+        
+        The scoring formula:
+        - Base score = money earned + (reputation * 10)
+        - Bonus: +50 points per successful delivery
+        - Penalty: -25 points per late delivery
+        - Penalty: -50 points per lost package
+        
+        Args:
+            money: Total money earned
+            reputation: Player reputation (0-100)
+            successful_deliveries: Number of on-time deliveries
+            late_deliveries: Number of late deliveries  
+            lost_packages: Number of expired/lost packages
+            
+        Returns:
+            Final score (minimum 0)
+        """
         # Base score from money and reputation
         base_score = money + (reputation * 10)
 

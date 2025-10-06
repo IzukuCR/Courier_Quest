@@ -1,9 +1,30 @@
+"""
+Player inventory module for managing accepted delivery orders.
+
+This module handles the orders that the player has accepted.
+It keeps track of which packages they're carrying, where they
+need to go, and makes sure they don't carry too much weight.
+"""
+
 from typing import List, Optional
 from ..core.order import Order
 
 
 class PlayerInventory:
+    """
+    Manages the player's accepted delivery orders.
+    
+    This class handles the orders that the player has accepted
+    and is working on. It tracks weight limits and helps with
+    navigation to pickup and dropoff points.
+    """
     def __init__(self, capacity_weight: float = 8.0):
+        """
+        Create a new player inventory.
+        
+        Args:
+            capacity_weight: Maximum weight the player can carry
+        """
         self.capacity_weight = float(capacity_weight)
         self.accepted: List[Order] = []
         self.active: Optional[Order] = None
@@ -11,15 +32,36 @@ class PlayerInventory:
         self._debug_printed = False
 
     def carried_weight(self) -> float:
+        """
+        Calculate total weight of packages being carried.
+        
+        This goes through all accepted orders and adds up the weight
+        of packages that are currently being carried (picked up but
+        not delivered yet).
+        
+        Returns:
+            Total weight as a float
+        """
         w = 0.0
+        # Add up weight from all accepted orders being carried
         for o in self.accepted:
             if o.state == "carrying":
                 w += o.weight
+        # Also check active order if it's not in accepted list
         if self.active and self.active.state == "carrying" and self.active not in self.accepted:
             w += self.active.weight
         return w
 
     def can_accept(self, o: Order) -> bool:
+        """
+        Check if the player can accept a new order.
+        
+        Args:
+            o: The order to check
+            
+        Returns:
+            True if the order can be accepted, False otherwise
+        """
         # Allow accepting any available order
         return o.state == "available"
 
