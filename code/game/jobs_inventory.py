@@ -72,11 +72,12 @@ class JobsInventory:
         available_orders = []
 
         for o in self._orders:
+            # Define order_release_time outside any conditional blocks to fix scope issues
+            order_release_time = getattr(o, 'release_time', 0)
+
             # ONLY check if state is "available" - ignore deadline completely!
             if o.state == "available":
                 # Check if release time has passed
-                order_release_time = getattr(o, 'release_time', 0)
-
                 if elapsed_game_time >= order_release_time:
                     # Order is available for selection - add to list
                     available_orders.append(o)

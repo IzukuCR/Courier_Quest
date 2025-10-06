@@ -477,19 +477,63 @@ class Game:
         return msg
 
     def check_game_over_conditions(self) -> tuple[bool, str]:
-        """Check all game over conditions and return if game should end"""
+        """
+        Check all game over conditions and return if game should end
+        Returns: (is_game_over, reason)
+        where reason can be: "victory", "time_up", "reputation", "no_jobs"
+        """
+        # Check if time is up
         if self._game_time_s <= 0:
-            return True, "Time's up!"
+            # Check if goal was reached before time ran out
+            current_score = self._scoreboard.get_score() if hasattr(self, '_scoreboard') else 0
+            if current_score >= self._goal:
+                return True, "victory"
+            else:
+                return True, "time_up"
 
+        # Check if goal has been reached (victory condition)
+        current_score = self._scoreboard.get_score() if hasattr(self, '_scoreboard') else 0
+        if current_score >= self._goal:
+            return True, "victory"
+
+        # Check reputation too low
         if self._player and self._player.is_game_over_by_reputation():
-            return True, "Reputation too low (<20)!"
+            return True, "reputation"
 
-        # Add other game over conditions here
+        # NEW: Check if there are no more jobs to do
+        no_more_jobs = self._check_no_more_jobs_available()
+        if no_more_jobs:
+            # If no more jobs and goal reached - victory
+            if current_score >= self._goal:
+                return True, "victory"
+            # If no more jobs but goal not reached - loss
+            else:
+                return True, "no_jobs"
 
+        # No game over condition met
         return False, ""
-        if self._player and self._player.is_game_over_by_reputation():
-            return True, "Reputation too low (<20)!"
 
-        # Add other game over conditions here
+    def _check_no_more_jobs_available(self) -> bool:
+        """
+        Check if there are no more jobs available and no pending orders.
+        Returns True when the player has nothing left to do.
+        """
+        # Check if there are any selectable jobs
+        available_jobs = len(self._jobs.selectable(self._game_time_s))
 
-        return False, ""
+        # Check if there are any active or pending orders
+        pending_orders = 0
+        if hasattr(self._player_inv, 'accepted'):
+            pending_orders += len(self._player_inv.accepted)
+        if self._player_inv.active is not None:
+            pending_orders += 1
+
+        # No more jobs when both are 0
+        no_jobs_available = available_jobs == 0
+        no_pending_orders = pending_orders == 0
+
+        if no_jobs_available and no_pending_orders:
+            print("Game: No more jobs available and no pending orders!")
+            return True
+
+        return False

@@ -883,24 +883,40 @@ class GameView(BaseView):
         # Check game over conditions
         game_over, reason = self.game.check_game_over_conditions()
         if game_over:
-            # Show brief message before transition
-            if reason == "victory":
+            # Determine victory or defeat
+            is_victory = reason == "victory"
+
+            # Prepare appropriate toast message
+            if is_victory:
                 self.toast, self.toast_timer = "¡VICTORIA! ¡Objetivo alcanzado!", 1.0
+            elif reason == "time_up":
+                self.toast, self.toast_timer = "¡TIEMPO AGOTADO!", 1.0
+            elif reason == "reputation":
+                self.toast, self.toast_timer = "¡REPUTACIÓN DEMASIADO BAJA!", 1.0
+            elif reason == "no_jobs":
+                self.toast, self.toast_timer = "¡NO HAY MÁS TRABAJOS DISPONIBLES!", 1.0
             else:
                 self.toast, self.toast_timer = "GAME OVER", 1.0
-            
+
             # Add a delay before transitioning to end game screen
             if not hasattr(self, '_end_game_transition_timer'):
                 self._end_game_transition_timer = 1.5  # 1.5 second delay
-                
+
             self._end_game_transition_timer -= delta_time
-            
+
             if self._end_game_transition_timer <= 0:
-                # Transition to end game screen
+                # Transition to end game screen with appropriate stats
                 from .end_game import EndGameView
-                victory = reason == "victory"
                 player_stats = self.get_player_stats()
-                self.window.set_view(EndGameView(victory=victory, player_stats=player_stats))
+
+                # Add game over reason and current score vs goal
+                player_stats["defeat_reason"] = reason
+                player_stats["goal"] = self.game._goal
+                player_stats["time_remaining"] = self.game._game_time_s
+
+                # Show end game view
+                self.window.show_view(EndGameView(
+                    victory=is_victory, player_stats=player_stats))
                 return
 
         # Update player reference in case it was created after view initialization
@@ -1009,3 +1025,44 @@ class GameView(BaseView):
             self.window.show_view(menu_view)
             menu_view = MenuView()
             self.window.show_view(menu_view)
+
+    def get_player_stats(self):
+        """Collect player stats for end game screen"""
+        stats = {}
+
+        # Basic game stats
+        stats["total_earnings"] = self.game._scoreboard.get_score(
+        ) if hasattr(self.game, '_scoreboard') else 0
+        stats["goal"] = self.game._goal
+        stats["time_remaining"] = self.game._game_time_s
+
+        # Player stats if available
+        if self.player:
+            stats["reputation"] = self.player.reputation
+
+            # Get reputation stats for detailed breakdown
+            if hasattr(self.player, "get_reputation_stats"):
+                rep_stats = self.player.get_reputation_stats()
+                stats["daily_stats"] = rep_stats.get("daily_stats", {})
+                stats["on_time_deliveries"] = rep_stats.get("daily_stats", {}).get(
+                    "on_time", 0) + rep_stats.get("daily_stats", {}).get("early", 0)
+                stats["late_deliveries"] = rep_stats.get(
+                    "daily_stats", {}).get("late", 0)
+                stats["orders_canceled"] = rep_stats.get(
+                    "daily_stats", {}).get("canceled", 0)
+                stats["orders_lost"] = rep_stats.get(
+                    "daily_stats", {}).get("lost", 0)
+
+            # Calculate total orders completed
+            stats["orders_completed"] = (
+                stats.get("on_time_deliveries", 0) +
+                stats.get("late_deliveries", 0)
+            )
+
+            # Add movement-related stats
+            if hasattr(self.player, "get_stamina_info"):
+                stamina_info = self.player.get_stamina_info()
+                stats["times_exhausted"] = getattr(
+                    self.player, 'was_exhausted', False)
+
+        return stats
