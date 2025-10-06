@@ -863,9 +863,28 @@ class GameView(BaseView):
             current_weather = self.weather.get_current_condition()
             self.weather_renderer.update(delta_time, current_weather)
 
-        # Check if game time is up
-        if self.game.is_game_time_up():
-            self.toast, self.toast_timer = "Time's Up! Game Over", 5.0
+        # Check game over conditions
+        game_over, reason = self.game.check_game_over_conditions()
+        if game_over:
+            # Show brief message before transition
+            if reason == "victory":
+                self.toast, self.toast_timer = "¡VICTORIA! ¡Objetivo alcanzado!", 1.0
+            else:
+                self.toast, self.toast_timer = "GAME OVER", 1.0
+            
+            # Add a delay before transitioning to end game screen
+            if not hasattr(self, '_end_game_transition_timer'):
+                self._end_game_transition_timer = 1.5  # 1.5 second delay
+                
+            self._end_game_transition_timer -= delta_time
+            
+            if self._end_game_transition_timer <= 0:
+                # Transition to end game screen
+                from .end_game import EndGameView
+                victory = reason == "victory"
+                player_stats = self.get_player_stats()
+                self.window.set_view(EndGameView(victory=victory, player_stats=player_stats))
+                return
 
         # Update player reference in case it was created after view initialization
         if not self.player:
