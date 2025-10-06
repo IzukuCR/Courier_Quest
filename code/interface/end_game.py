@@ -49,6 +49,11 @@ class EndGameView(BaseView):
             "buttons": False
         }
 
+        # Add flag to track if score has been saved
+        self.score_saved = False
+        self.high_scores = []
+        self.load_high_scores()
+
     def on_show(self):
         """Initialize responsive layout when view is shown"""
         if not self.window:
@@ -160,33 +165,55 @@ class EndGameView(BaseView):
 
     def draw(self, screen):
         """Draw the end game screen"""
-        # Dynamic positioning
+        # Initialize panel dimensions and positions first
         center_x = self.window.width // 2
-        panel_width = self.window.get_scaled_size(800)
-        panel_padding = self.window.get_scaled_size(20)
+        main_panel_width = self.window.get_scaled_size(600)
+        main_panel_height = self.window.get_scaled_size(600)
 
-        # Background
+        # Calculate centered positions for both panels
+        total_width = main_panel_width + \
+            self.window.get_scaled_size(50) + self.window.get_scaled_size(400)
+        start_x = (self.window.width - total_width) // 2
+        main_panel_x = start_x
+        main_panel_y = self.window.height // 2 - main_panel_height // 2
+
+        # Draw background
         if self.victory:
-            bg_gradient = self.draw_gradient_background(
-                screen, (20, 40, 20), (30, 60, 30))
+            self.draw_gradient_background(screen, (20, 40, 20), (30, 60, 30))
         else:
-            bg_gradient = self.draw_gradient_background(
-                screen, (40, 20, 20), (60, 30, 30))
+            self.draw_gradient_background(screen, (40, 20, 20), (60, 30, 30))
 
         # Draw main container panel
         if self.sections_visible["statistics"]:
-            main_panel_height = self.window.get_scaled_size(
-                600)  # Increased height to fit final score
-            main_panel_y = self.window.height // 2 - main_panel_height // 2
-
-            # Main panel with translucent background
-            panel_rect = pygame.Rect(
-                center_x - panel_width // 2,
+            # Main stats panel
+            stats_panel_rect = pygame.Rect(
+                main_panel_x,
                 main_panel_y,
-                panel_width,
+                main_panel_width,
                 main_panel_height
             )
-            self.draw_translucent_panel(screen, panel_rect, (30, 30, 30, 180))
+            self.draw_translucent_panel(
+                screen, stats_panel_rect, (30, 30, 30, 180))
+
+            # High scores panel
+            scores_panel_width = self.window.get_scaled_size(400)
+            scores_panel_x = main_panel_x + main_panel_width + \
+                self.window.get_scaled_size(50)
+            scores_panel_rect = pygame.Rect(
+                scores_panel_x,
+                main_panel_y,
+                scores_panel_width,
+                main_panel_height
+            )
+            self.draw_translucent_panel(
+                screen, scores_panel_rect, (30, 30, 30, 180))
+
+            # Draw high scores table in the right panel only
+            self.draw_high_scores_table(screen, scores_panel_x + self.window.get_scaled_size(20),
+                                        main_panel_y + self.window.get_scaled_size(20))
+
+        # Adjust center_x for the main content to be centered in left panel
+        center_x = main_panel_x + (main_panel_width // 2)
 
         # Draw sections
         current_y = self.window.get_scaled_size(80)
@@ -412,8 +439,46 @@ class EndGameView(BaseView):
                 screen.blit(value_surface, (right_col_x + 20,
                             row_y - value_surface.get_height() // 2))
 
+    def save_current_score(self):
+        """Save current game score"""
+        if self.score_saved:
+            return
+
+        from ..game.scoreboard import Scoreboard
+        # Get the actual player name from game instance
+        from ..game.game import Game
+        game = Game()
+        # Use actual player name instead of default
+        player_name = game.get_player_name()
+
+        scoreboard = Scoreboard(player_name)  # Use correct player name
+
+        # Calculate final score components
+        base_score = self.player_stats.get('total_earnings', 0)
+        reputation_bonus = self.calculate_reputation_bonus()
+        time_bonus = self.calculate_time_bonus()
+        penalties = self.calculate_penalties()
+        final_score = base_score + reputation_bonus + time_bonus - penalties
+
+        # Set score and stats
+        scoreboard.score = final_score
+        scoreboard.stats = self.player_stats
+
+        # Save score
+        if scoreboard.save_score():
+            self.score_saved = True
+            self.load_high_scores()  # Reload high scores after saving
+
+    def load_high_scores(self):
+        """Load high scores from data manager"""
+        from ..game.scoreboard import Scoreboard
+        self.high_scores = Scoreboard.get_high_scores(limit=5)  # Get top 5
+
     def draw_score_calculation(self, screen, center_x, y):
-        """Draw final score calculation with more emphasis"""
+        """Draw final score calculation with high scores table"""
+        # Save score when this section is drawn
+        self.save_current_score()
+
         # Section title
         score_title = "Final Score Calculation"
         score_title_surface = self.header_font.render(
@@ -650,15 +715,13 @@ class EndGameView(BaseView):
             elif rep_value >= 70:
                 return self.gold_color
             elif rep_value >= 40:
-                # Hardcoded yellow color instead of self.window.colors['YELLOW']
-                return (255, 255, 0)
+                return (255, 255, 0)  # Hardcoded yellow color
             else:
                 return self.defeat_color
         elif "Late" in label:
             if value == "0":
                 return self.victory_color
             else:
-                # Not critical but not great
                 return (255, 255, 0)  # Hardcoded yellow color
         elif "Canceled" in label:
             if value == "0":
@@ -676,20 +739,89 @@ class EndGameView(BaseView):
             else:
                 return self.defeat_color
 
-        # Default color
         return self.window.colors['WHITE']
 
-    # Helper methods for calculations
+    def draw_high_scores_table(self, screen, x, y):
+        """Draw high scores table in a nicely formatted way"""
+        # Title - Centered in the panel
+        title = "HIGH SCORES TABLE"
+        title_surface = self.header_font.render(title, True, self.gold_color)
+        title_rect = title_surface.get_rect(
+            center=(x + self.window.get_scaled_size(180), y))
+        screen.blit(title_surface, title_rect)
+
+        # Center all content within the panel
+        panel_width = self.window.get_scaled_size(360)
+        start_x = x + ((panel_width - self.window.get_scaled_size(320)) // 2)
+
+        # Draw decorative line
+        line_y = y + title_rect.height + 10
+        pygame.draw.line(
+            screen,
+            self.gold_color,
+            (start_x, line_y),
+            (start_x + self.window.get_scaled_size(320), line_y),
+            2
+        )
+
+        # Table headers
+        header_y = line_y + 30
+        headers = ["Rank", "Player", "Score", "Date"]
+        # Adjusted positions for centering
+        header_x_positions = [0, 60, 180, 260]
+
+        for header, x_offset in zip(headers, header_x_positions):
+            header_surface = self.text_font.render(
+                header, True, self.window.colors['WHITE'])
+            screen.blit(header_surface, (start_x + x_offset, header_y))
+
+        # Draw scores
+        row_height = self.window.get_scaled_size(30)
+        start_y = header_y + row_height
+
+        for i, score_data in enumerate(self.high_scores[:10]):
+            row_y = start_y + (i * row_height)
+
+            # Rank with medal colors for top 3
+            rank_text = f"#{i+1}"
+            if i == 0:
+                rank_color = self.gold_color
+            elif i == 1:
+                rank_color = self.silver_color
+            elif i == 2:
+                rank_color = self.bronze_color
+            else:
+                rank_color = self.window.colors['GRAY']
+
+            # Draw rank
+            rank_surface = self.text_font.render(rank_text, True, rank_color)
+            screen.blit(rank_surface, (start_x, row_y))
+
+            # Draw player name (truncated if too long)
+            name = score_data.get('player_name', 'Unknown')[:12]
+            name_surface = self.text_font.render(name, True, rank_color)
+            screen.blit(name_surface, (start_x + 60, row_y))
+
+            # Draw score
+            score = f"${score_data.get('score', 0)}"
+            score_surface = self.text_font.render(score, True, rank_color)
+            screen.blit(score_surface, (start_x + 180, row_y))
+
+            # Draw date
+            date = score_data.get('date', '').split('T')[0]
+            date_surface = self.small_font.render(date, True, rank_color)
+            screen.blit(date_surface, (start_x + 260, row_y))
+
+    def get_defeat_reason(self):
+        """Get the reason for defeat"""
+        return self.player_stats.get('defeat_reason', 'unknown')
+
     def get_time_remaining(self):
         """Get formatted time remaining when victory was achieved"""
         remaining_seconds = self.player_stats.get('time_remaining', 0)
         minutes = int(remaining_seconds // 60)
         seconds = int(remaining_seconds % 60)
         return f"{minutes}:{seconds:02d}"
-
-    def get_defeat_reason(self):
-        """Get the reason for defeat"""
-        return self.player_stats.get('defeat_reason', 'unknown')
 
     def calculate_reputation_bonus(self):
         """Calculate bonus based on reputation"""
@@ -704,158 +836,64 @@ class EndGameView(BaseView):
 
     def calculate_time_bonus(self):
         """Calculate bonus for finishing early"""
-        if not self.victory:
-            return 0
-
         time_remaining = self.player_stats.get('time_remaining', 0)
-        if time_remaining > 120:  # More than 2 minutes remaining
-            return int(time_remaining * 2)  # 2 points per second remaining
-        return 0
+        if time_remaining <= 0:
+            return 0
+        elif time_remaining <= 60:
+            # Up to 1 minute early
+            return int(100 * (time_remaining / 60))
+        else:
+            # More than 1 minute early
+            return 100
 
     def calculate_penalties(self):
-        """Calculate penalties for poor performance"""
+        """Calculate penalties for late deliveries or other issues"""
         penalties = 0
-        # 50 points per canceled order
-        penalties += self.player_stats.get('orders_canceled', 0) * 50
-        # 30 points per late delivery
-        penalties += self.player_stats.get('late_deliveries', 0) * 30
+        if self.player_stats.get('late_deliveries', 0) > 0:
+            penalties -= 50 * self.player_stats['late_deliveries']
+        if self.player_stats.get('times_exhausted', 0) > 0:
+            penalties -= 100 * self.player_stats['times_exhausted']
         return penalties
 
-    def calculate_performance_rank(self):
-        """Calculate performance rank based on various factors"""
-        score = 0
+    def get_defeat_reason(self):
+        """Get the reason for defeat"""
+        return self.player_stats.get('defeat_reason', 'unknown')
 
-        # Completion rate
-        completed = self.player_stats.get('orders_completed', 0)
-        canceled = self.player_stats.get('orders_canceled', 0)
-        if completed + canceled > 0:
-            completion_rate = completed / (completed + canceled)
-            score += completion_rate * 30
+    def get_time_remaining(self):
+        """Get formatted time remaining when victory was achieved"""
+        remaining_seconds = self.player_stats.get('time_remaining', 0)
+        minutes = int(remaining_seconds // 60)
+        seconds = int(remaining_seconds % 60)
+        return f"{minutes}:{seconds:02d}"
 
-        # On-time delivery rate
-        on_time = self.player_stats.get('on_time_deliveries', 0)
-        if completed > 0:
-            on_time_rate = on_time / completed
-            score += on_time_rate * 30
-
-        # Reputation
+    def calculate_reputation_bonus(self):
+        """Calculate bonus based on reputation"""
         reputation = self.player_stats.get('reputation', 70)
-        score += (reputation / 100) * 25
+        if reputation >= 90:
+            # 10% bonus
+            return int(self.player_stats.get('total_earnings', 0) * 0.1)
+        elif reputation >= 80:
+            # 5% bonus
+            return int(self.player_stats.get('total_earnings', 0) * 0.05)
+        return 0
 
-        # Victory bonus
-        if self.victory:
-            score += 15
-
-        # Determine rank
-        if score >= 85:
-            return "S"
-        elif score >= 75:
-            return "A"
-        elif score >= 65:
-            return "B"
-        elif score >= 50:
-            return "C"
-        else:
-            return "D"
-
-    def get_rank_color(self, rank):
-        """Get color for performance rank"""
-        if rank == "S":
-            return self.gold_color
-        elif rank == "A":
-            return self.silver_color
-        elif rank == "B":
-            return self.bronze_color
-        elif rank == "C":
-            return self.window.colors['BLUE']
-        else:
-            return self.defeat_color
-
-    def get_performance_message(self, rank):
-        """Get performance message based on rank"""
-        messages = {
-            "S": "Outstanding performance! You're a master courier!",
-            "A": "Excellent work! You're a skilled delivery professional!",
-            "B": "Good job! You're getting the hang of it!",
-            "C": "Not bad! There's room for improvement.",
-            "D": "Keep practicing! You'll get better with experience."
-        }
-        return messages.get(rank, "Thanks for playing!")
+    def calculate_time_bonus(self):
         """Calculate bonus for finishing early"""
-        if not self.victory:
-            return 0
-
         time_remaining = self.player_stats.get('time_remaining', 0)
-        if time_remaining > 120:  # More than 2 minutes remaining
-            return int(time_remaining * 2)  # 2 points per second remaining
-        return 0
+        if time_remaining <= 0:
+            return 0
+        elif time_remaining <= 60:
+            # Up to 1 minute early
+            return int(100 * (time_remaining / 60))
+        else:
+            # More than 1 minute early
+            return 100
 
     def calculate_penalties(self):
-        """Calculate penalties for poor performance"""
+        """Calculate penalties for late deliveries or other issues"""
         penalties = 0
-        # 50 points per canceled order
-        penalties += self.player_stats.get('orders_canceled', 0) * 50
-        # 30 points per late delivery
-        penalties += self.player_stats.get('late_deliveries', 0) * 30
+        if self.player_stats.get('late_deliveries', 0) > 0:
+            penalties -= 50 * self.player_stats['late_deliveries']
+        if self.player_stats.get('times_exhausted', 0) > 0:
+            penalties -= 100 * self.player_stats['times_exhausted']
         return penalties
-
-    def calculate_performance_rank(self):
-        """Calculate performance rank based on various factors"""
-        score = 0
-
-        # Completion rate
-        completed = self.player_stats.get('orders_completed', 0)
-        canceled = self.player_stats.get('orders_canceled', 0)
-        if completed + canceled > 0:
-            completion_rate = completed / (completed + canceled)
-            score += completion_rate * 30
-
-        # On-time delivery rate
-        on_time = self.player_stats.get('on_time_deliveries', 0)
-        if completed > 0:
-            on_time_rate = on_time / completed
-            score += on_time_rate * 30
-
-        # Reputation
-        reputation = self.player_stats.get('reputation', 70)
-        score += (reputation / 100) * 25
-
-        # Victory bonus
-        if self.victory:
-            score += 15
-
-        # Determine rank
-        if score >= 85:
-            return "S"
-        elif score >= 75:
-            return "A"
-        elif score >= 65:
-            return "B"
-        elif score >= 50:
-            return "C"
-        else:
-            return "D"
-
-    def get_rank_color(self, rank):
-        """Get color for performance rank"""
-        if rank == "S":
-            return self.gold_color
-        elif rank == "A":
-            return self.silver_color
-        elif rank == "B":
-            return self.bronze_color
-        elif rank == "C":
-            return self.window.colors['BLUE']
-        else:
-            return self.defeat_color
-
-    def get_performance_message(self, rank):
-        """Get performance message based on rank"""
-        messages = {
-            "S": "Outstanding performance! You're a master courier!",
-            "A": "Excellent work! You're a skilled delivery professional!",
-            "B": "Good job! You're getting the hang of it!",
-            "C": "Not bad! There's room for improvement.",
-            "D": "Keep practicing! You'll get better with experience."
-        }
-        return messages.get(rank, "Thanks for playing!")

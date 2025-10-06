@@ -1,0 +1,127 @@
+[
+    {
+        "player_name": "sads",
+        "score": 1360,
+        "date": "2025-10-05T23:22:07.841600",
+        "stats": {
+            "total_earnings": 1110,
+            "goal": 1500.0,
+            "time_remaining": 234.2660000000663,
+            "reputation": 74.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 2,
+                "late": 3,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 2,
+            "late_deliveries": 3,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
+        "player_name": "sads",
+        "score": 1360,
+        "date": "2025-10-05T23:25:55.219773",
+        "stats": {
+            "total_earnings": 1110,
+            "goal": 1500.0,
+            "time_remaining": 234.26600000006658,
+            "reputation": 74.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 2,
+                "late": 3,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 2,
+            "late_deliveries": 3,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
+        "player_name": "sads",
+        "score": 1360,
+        "date": "2025-10-05T23:31:06.498700",
+        "stats": {
+            "total_earnings": 1110,
+            "goal": 1500.0,
+            "time_remaining": 234.2520000000664,
+            "reputation": 74.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 2,
+                "late": 3,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 2,
+            "late_deliveries": 3,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
+        "player_name": "Player",
+        "score": 1020,
+        "date": "2025-10-05T23:05:07.301376",
+        "stats": {
+            "total_earnings": 1110,
+            "goal": 1500.0,
+            "time_remaining": 234.2520000000667,
+            "reputation": 74.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 2,
+                "late": 3,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 2,
+            "late_deliveries": 3,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 5,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    },
+    {
+        "player_name": "Isaac",
+        "score": 280,
+        "date": "2025-10-05T23:45:57.914241",
+        "stats": {
+            "total_earnings": 180,
+            "goal": 1500.0,
+            "time_remaining": 562.3879999999766,
+            "reputation": 75.0,
+            "daily_stats": {
+                "on_time": 0,
+                "early": 1,
+                "late": 0,
+                "canceled": 0,
+                "lost": 0
+            },
+            "on_time_deliveries": 1,
+            "late_deliveries": 0,
+            "orders_canceled": 0,
+            "orders_lost": 0,
+            "orders_completed": 1,
+            "times_exhausted": false,
+            "defeat_reason": "no_jobs"
+        }
+    }
+]

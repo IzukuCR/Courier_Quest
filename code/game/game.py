@@ -518,22 +518,35 @@ class Game:
         Check if there are no more jobs available and no pending orders.
         Returns True when the player has nothing left to do.
         """
-        # Check if there are any selectable jobs
+        # Get current elapsed game time
+        elapsed_game_time = self._game_time_limit_s - self._game_time_s
+
+        # Check if there are any upcoming jobs to be released
+        unreleased_jobs = [o for o in self._jobs.all()
+                           if o.state == "available"
+                           and getattr(o, 'release_time', 0) > elapsed_game_time]
+        has_future_jobs = len(unreleased_jobs) > 0
+
+        # Check if there are any selectable jobs now
         available_jobs = len(self._jobs.selectable(self._game_time_s))
 
-        # Check if there are any active or pending orders
+        # Check if there are any active or pending orders in player inventory
         pending_orders = 0
         if hasattr(self._player_inv, 'accepted'):
             pending_orders += len(self._player_inv.accepted)
         if self._player_inv.active is not None:
             pending_orders += 1
 
-        # No more jobs when both are 0
-        no_jobs_available = available_jobs == 0
+        # Only end game if:
+        # 1. No jobs are currently available AND
+        # 2. No jobs will be released in the future AND
+        # 3. No orders are pending in player's inventory
+        no_current_jobs = available_jobs == 0
         no_pending_orders = pending_orders == 0
 
-        if no_jobs_available and no_pending_orders:
-            print("Game: No more jobs available and no pending orders!")
+        if no_current_jobs and no_pending_orders and not has_future_jobs:
+            print("Game: No more jobs available, no pending orders, and no future jobs!")
             return True
 
+        # Otherwise, keep playing
         return False

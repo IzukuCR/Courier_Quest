@@ -15,7 +15,7 @@ class MenuView(BaseView):
     def on_show(self):
         """Initialize responsive layout when view is shown"""
         if self.window:
-            # Scale fonts based on window size (was fixed sizes)
+            # Scale fonts based on window size
             title_size = self.window.get_scaled_size(48)
             button_size = self.window.get_scaled_size(24)
             subtitle_size = self.window.get_scaled_size(20)
@@ -24,31 +24,40 @@ class MenuView(BaseView):
             self.button_font = pygame.font.Font(None, button_size)
             self.subtitle_font = pygame.font.Font(None, subtitle_size)
 
-            # Calculate responsive button positions (was fixed center_x=700)
+            # Calculate responsive button positions
             center_x = self.window.width // 2
             center_y = self.window.height // 2
 
             button_width = self.window.get_scaled_size(200)
             button_height = self.window.get_scaled_size(50)
-            button_spacing = self.window.get_scaled_size(70)
+            button_spacing = self.window.get_scaled_size(60)  # Reduced spacing
 
-            # Create responsive button layout - removed save button
+            # Adjust starting Y to accommodate new button
+            start_y = center_y - (button_spacing * 1.5)
+
+            # Create responsive button layout
             self.buttons = {
                 "play": {
                     "rect": pygame.Rect(center_x - button_width//2,
-                                        center_y - button_spacing,
+                                        start_y,
                                         button_width, button_height),
                     "text": "Play"
                 },
                 "load": {
                     "rect": pygame.Rect(center_x - button_width//2,
-                                        center_y,
+                                        start_y + button_spacing,
                                         button_width, button_height),
                     "text": "Load Game"
                 },
+                "scores": {
+                    "rect": pygame.Rect(center_x - button_width//2,
+                                        start_y + button_spacing * 2,
+                                        button_width, button_height),
+                    "text": "High Scores"
+                },
                 "quit": {
                     "rect": pygame.Rect(center_x - button_width//2,
-                                        center_y + button_spacing,
+                                        start_y + button_spacing * 3,
                                         button_width, button_height),
                     "text": "Quit"
                 }
@@ -84,6 +93,11 @@ class MenuView(BaseView):
             from .load_game_view import LoadGameView
             load_view = LoadGameView()
             self.window.show_view(load_view)
+
+        elif button_key == "scores":
+            from .scores_manager import ScoresManagerView
+            scores_view = ScoresManagerView()
+            self.window.show_view(scores_view)
 
         elif button_key == "quit":
             print("Closing game...")

@@ -13,6 +13,7 @@ class DataManager:
     JOBS_JSON = DATA_DIR / "jobs.json"
     WEATHER_JSON = DATA_DIR / "weather.json"
     WEATHER_BURST_JSON = DATA_DIR / "burst.json"
+    SCORES_JSON = DATA_DIR / "scores.json"
 
     def __init__(self):
         if not DataManager._initialized:
@@ -119,7 +120,8 @@ class DataManager:
                 with open(json_file_path, "w", encoding="utf-8") as f:
                     json.dump(file_data, f, indent=4, ensure_ascii=False)
 
-                print(f"{data_type.capitalize()} version {api_version} saved successfully")
+                print(
+                    f"{data_type.capitalize()} version {api_version} saved successfully")
                 return True
             else:
                 print(f"{data_type.capitalize()} - no changes detected")
@@ -169,7 +171,8 @@ class DataManager:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_JSON, "weather")
         except Exception as e:
-            print(f"Data Manager: Error fetching weather data (seed) from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather data (seed) from API: {e}")
         return False
 
     def save_weather_data_burst(self):
@@ -179,7 +182,8 @@ class DataManager:
                 api_data = response.json()
                 return self._add_version_to_json(api_data, self.WEATHER_BURST_JSON, "weather")
         except Exception as e:
-            print(f"Data Manager: Error fetching weather data (burst) from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather data (burst) from API: {e}")
         return False
 
     def load_city(self):
@@ -288,7 +292,8 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Data Manager: Error fetching weather (seed) data from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather (seed) data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_JSON.exists():
@@ -310,10 +315,12 @@ class DataManager:
                     # Fallback: assume all content is data
                     return data
             except Exception as e:
-                print(f"Data Manager: Error reading local weather (seed) file: {e}")
+                print(
+                    f"Data Manager: Error reading local weather (seed) file: {e}")
                 return None
         else:
-            print(f"Data Manager: Local weather (seed) file not found: {self.WEATHER_JSON}")
+            print(
+                f"Data Manager: Local weather (seed) file not found: {self.WEATHER_JSON}")
             return None
 
     def load_weather_burst(self):
@@ -327,7 +334,8 @@ class DataManager:
                     return data["data"]  # Returns the array directly
                 return data
         except Exception as e:
-            print(f"Data Manager: Error fetching weather (burst) data from API: {e}")
+            print(
+                f"Data Manager: Error fetching weather (burst) data from API: {e}")
 
         # Fallback: load from local JSON
         if self.WEATHER_BURST_JSON.exists():
@@ -349,8 +357,93 @@ class DataManager:
                     # Fallback: assume all content is data
                     return data
             except Exception as e:
-                print(f"Data Manager: Error reading local weather (burst) file: {e}")
+                print(
+                    f"Data Manager: Error reading local weather (burst) file: {e}")
                 return None
         else:
-            print(f"Data Manager: Local weather (burst) file not found: {self.WEATHER_BURST_JSON}")
+            print(
+                f"Data Manager: Local weather (burst) file not found: {self.WEATHER_BURST_JSON}")
             return None
+
+    def save_score(self, player_name: str, score: int, stats: dict) -> bool:
+        """Save a player's score with detailed statistics"""
+        try:
+            if not self.SCORES_JSON.parent.exists():
+                self.SCORES_JSON.parent.mkdir(parents=True, exist_ok=True)
+
+            # Load existing scores
+            scores_data = []
+            if self.SCORES_JSON.exists():
+                try:
+                    with open(self.SCORES_JSON, 'r', encoding='utf-8') as f:
+                        scores_data = json.load(f)
+                except json.JSONDecodeError:
+                    scores_data = []
+
+            # Create new score entry
+            score_entry = {
+                "player_name": player_name,
+                "score": score,
+                "date": datetime.now().isoformat(),
+                "stats": stats
+            }
+
+            # Add new score
+            scores_data.append(score_entry)
+
+            # Sort by score (highest first)
+            scores_data.sort(key=lambda x: x["score"], reverse=True)
+
+            # Save updated scores
+            with open(self.SCORES_JSON, 'w', encoding='utf-8') as f:
+                json.dump(scores_data, f, indent=4)
+
+            print(f"Score saved successfully for {player_name}: {score}")
+            return True
+
+        except Exception as e:
+            print(f"Error saving score: {e}")
+            return False
+
+    def delete_score(self, player_name: str, score: int, date: str) -> bool:
+        """Delete a specific score entry"""
+        try:
+            if self.SCORES_JSON.exists():
+                with open(self.SCORES_JSON, 'r', encoding='utf-8') as f:
+                    scores_data = json.load(f)
+
+                # Find and remove the matching score entry
+                for score_entry in scores_data[:]:
+                    if (score_entry.get('player_name') == player_name and
+                        score_entry.get('score') == score and
+                            score_entry.get('date') == date):
+                        scores_data.remove(score_entry)
+                        break
+
+                # Save updated scores
+                with open(self.SCORES_JSON, 'w', encoding='utf-8') as f:
+                    json.dump(scores_data, f, indent=4)
+
+                print(f"Score deleted successfully for {player_name}")
+                return True
+
+        except Exception as e:
+            print(f"Error deleting score: {e}")
+        return False
+
+    def load_scores(self) -> list:
+        """Load and return all saved scores"""
+        try:
+            if self.SCORES_JSON.exists():
+                with open(self.SCORES_JSON, 'r', encoding='utf-8') as f:
+                    scores_data = json.load(f)
+                return scores_data
+            return []
+        except Exception as e:
+            print(f"Error loading scores: {e}")
+            return []
+
+    def get_high_scores(self, limit: int = 10) -> list:
+        """Get the top N scores"""
+        scores = self.load_scores()
+        return sorted(scores, key=lambda x: x["score"], reverse=True)[:limit]
