@@ -162,6 +162,27 @@ class GameSaveManager:
             player = game.get_player()
             player_state = None
             if player:
+                # Collect undo system state - fix attribute names
+                undo_state = None
+                if hasattr(player, 'undo_system') and player.undo_system:
+                    undo_state = {
+                        'position_history': getattr(player.undo_system, 'position_history', []),
+                        'max_steps': getattr(player.undo_system, 'max_steps', 8),
+                        # Fixed attribute name
+                        'stamina_cost': getattr(player.undo_system, 'stamina_cost', 10.0)
+                    }
+                    print(
+                        f"GameSaveManager: Undo system state collected - {len(undo_state['position_history'])} positions in history")
+
+                # Collect reputation system state
+                reputation_state = {
+                    'successful_deliveries_streak': getattr(player, 'successful_deliveries_streak', 0),
+                    'had_first_late_delivery_today': getattr(player, 'had_first_late_delivery_today', False),
+                    'daily_delivery_stats': getattr(player, 'daily_delivery_stats', {
+                        "on_time": 0, "early": 0, "late": 0, "canceled": 0, "lost": 0
+                    })
+                }
+
                 player_state = {
                     'position': (player.x, player.y),
                     'target_position': (player.target_x, player.target_y),
@@ -176,7 +197,18 @@ class GameSaveManager:
                     'base_speed': player.base_speed,
                     'current_speed': player.current_speed,
                     'animation_frame': player.animation_frame,
-                    'animation_timer': player.animation_timer
+                    'animation_timer': player.animation_timer,
+                    # New stamina system data
+                    'idle_time': getattr(player, 'idle_time', 0.0),
+                    'stamina_recovery_rate': getattr(player, 'stamina_recovery_rate', 5.0),
+                    'stamina_recovery_interval': getattr(player, 'stamina_recovery_interval', 1.0),
+                    'recovery_threshold': getattr(player, 'recovery_threshold', 30.0),
+                    'is_in_recovery_mode': getattr(player, 'is_in_recovery_mode', False),
+                    'was_exhausted': getattr(player, 'was_exhausted', False),
+                    # Undo system state
+                    'undo_state': undo_state,
+                    # Reputation system state
+                    'reputation_state': reputation_state
                 }
                 print(
                     f"GameSaveManager: Player state collected at position ({player.x}, {player.y})")
@@ -188,6 +220,8 @@ class GameSaveManager:
             jobs = game.get_jobs()
             jobs_state = {
                 'selected_index': jobs._selected_index,
+                'scroll_offset': getattr(jobs, '_scroll_offset', 0),
+                'visible_count': getattr(jobs, '_visible_count', 3),
                 'orders': []
             }
 
@@ -205,7 +239,10 @@ class GameSaveManager:
                     'accepted_at': order.accepted_at,
                     'picked_at': order.picked_at,
                     'delivered_at': order.delivered_at,
-                    'deadline_s': order.deadline_s
+                    'deadline_s': order.deadline_s,
+                    # Save release tracking flags
+                    '_was_released': getattr(order, '_was_released', False),
+                    '_last_debug_time': getattr(order, '_last_debug_time', None)
                 }
                 jobs_state['orders'].append(order_data)
 
@@ -218,10 +255,11 @@ class GameSaveManager:
             player_inv_state = {
                 'capacity_weight': player_inv.capacity_weight,
                 'accepted_orders': [order.id for order in player_inv.accepted],
-                'active_order_id': player_inv.active.id if player_inv.active else None
+                'active_order_id': player_inv.active.id if player_inv.active else None,
+                '_debug_printed': getattr(player_inv, '_debug_printed', False)
             }
 
-            # Get weather state
+            # Get weather state with enhanced timing data
             print("GameSaveManager: Collecting weather state...")
             weather = game.get_weather()
             weather_state = {
@@ -242,10 +280,10 @@ class GameSaveManager:
                 'player_name': game._scoreboard.player_name
             }
 
-            # Collect main game state
+            # Collect main game state with enhanced timing data
             print("GameSaveManager: Assembling final game state...")
             game_state = {
-                'version': '1.0',  # Save format version
+                'version': '2.0',  # Updated save format version
                 'timestamp': datetime.now().isoformat(),
                 'player_name': game.get_player_name(),
                 'game_time_s': game._game_time_s,
@@ -258,6 +296,10 @@ class GameSaveManager:
                 'is_playing': game._is_playing,
                 'paused': game._paused,
                 'goal': game._goal,
+                # Enhanced game timing data
+                '_last_update_time': getattr(game, '_last_update_time', None),
+                '_last_debug_print_time': getattr(game, '_last_debug_print_time', None),
+                # Component states
                 'player_state': player_state,
                 'jobs_state': jobs_state,
                 'player_inventory_state': player_inv_state,
@@ -302,7 +344,13 @@ class GameSaveManager:
             game._paused = False  # Always resume when loading
             game._goal = game_state['goal']
 
-            # Restore player state
+            # Restore enhanced timing data if available
+            if '_last_update_time' in game_state and game_state['_last_update_time']:
+                game._last_update_time = game_state['_last_update_time']
+            if '_last_debug_print_time' in game_state and game_state['_last_debug_print_time']:
+                game._last_debug_print_time = game_state['_last_debug_print_time']
+
+            # Restore player state with enhanced data
             print("GameSaveManager: Restoring player state...")
             if game_state['player_state']:
                 from ..game.player import Player
@@ -325,6 +373,51 @@ class GameSaveManager:
                 player.animation_frame = player_data['animation_frame']
                 player.animation_timer = player_data['animation_timer']
 
+                # Restore stamina system data
+                player.idle_time = player_data.get('idle_time', 0.0)
+                player.stamina_recovery_rate = player_data.get(
+                    'stamina_recovery_rate', 5.0)
+                player.stamina_recovery_interval = player_data.get(
+                    'stamina_recovery_interval', 1.0)
+                player.recovery_threshold = player_data.get(
+                    'recovery_threshold', 30.0)
+                player.is_in_recovery_mode = player_data.get(
+                    'is_in_recovery_mode', False)
+                player.was_exhausted = player_data.get('was_exhausted', False)
+
+                # Restore undo system - fix attribute names and add null checks
+                if 'undo_state' in player_data and player_data['undo_state'] and hasattr(player, 'undo_system'):
+                    undo_data = player_data['undo_state']
+                    if player.undo_system:
+                        # Restore position history
+                        if 'position_history' in undo_data:
+                            player.undo_system.position_history = undo_data['position_history']
+
+                        # Restore max steps
+                        if 'max_steps' in undo_data:
+                            player.undo_system.max_steps = undo_data['max_steps']
+
+                        # Restore stamina cost (use correct attribute name)
+                        if 'stamina_cost' in undo_data:
+                            player.undo_system.stamina_cost = undo_data['stamina_cost']
+
+                        print(
+                            f"GameSaveManager: Undo system restored - {len(player.undo_system.position_history)} positions in history")
+                    else:
+                        print(
+                            "GameSaveManager: WARNING - Player has no undo system to restore to")
+
+                # Restore reputation system
+                if 'reputation_state' in player_data and player_data['reputation_state']:
+                    rep_data = player_data['reputation_state']
+                    player.successful_deliveries_streak = rep_data.get(
+                        'successful_deliveries_streak', 0)
+                    player.had_first_late_delivery_today = rep_data.get(
+                        'had_first_late_delivery_today', False)
+                    player.daily_delivery_stats = rep_data.get('daily_delivery_stats', {
+                        "on_time": 0, "early": 0, "late": 0, "canceled": 0, "lost": 0
+                    })
+
                 game._player = player
                 print(
                     f"GameSaveManager: Player restored at position ({player.x}, {player.y})")
@@ -341,51 +434,86 @@ class GameSaveManager:
             weather.bursts = weather_data['bursts']
             weather.meta = weather_data['meta']
 
-            # Restore jobs inventory
+            # Restore jobs inventory with enhanced data
             jobs_data = game_state['jobs_state']
             jobs = game.get_jobs()
             jobs._selected_index = jobs_data['selected_index']
+            jobs._scroll_offset = jobs_data.get('scroll_offset', 0)
+            jobs._visible_count = jobs_data.get('visible_count', 3)
 
-            # Restore orders
+            # Restore orders with correct constructor parameters - FIX THE ORDER RESTORATION
+            print("GameSaveManager: Restoring orders...")
             from ..core.order import Order
             jobs._orders = []
             for order_data in jobs_data['orders']:
-                order = Order(
-                    id=order_data['id'],
-                    pickup=order_data['pickup'],
-                    dropoff=order_data['dropoff'],
-                    payout=order_data['payout'],
-                    deadline_iso=order_data['deadline_iso'],
-                    weight=order_data['weight'],
-                    priority=order_data['priority'],
-                    release_time=order_data['release_time'],
-                    state=order_data['state'],
-                    accepted_at=order_data['accepted_at'],
-                    picked_at=order_data['picked_at'],
-                    delivered_at=order_data['delivered_at'],
-                    deadline_s=order_data['deadline_s']
-                )
-                jobs._orders.append(order)
+                try:
+                    # Create Order with only the constructor parameters it accepts
+                    order = Order(
+                        id=order_data['id'],
+                        pickup=order_data['pickup'],
+                        dropoff=order_data['dropoff'],
+                        payout=order_data['payout'],
+                        deadline_iso=order_data['deadline_iso'],
+                        weight=order_data['weight'],
+                        priority=order_data['priority'],
+                        release_time=order_data['release_time']
+                        # Don't pass state, accepted_at, etc. to constructor
+                    )
 
-            # Restore player inventory
+                    # Set state and timing attributes after creation
+                    if 'state' in order_data:
+                        order.state = order_data['state']
+                    if 'accepted_at' in order_data:
+                        order.accepted_at = order_data['accepted_at']
+                    if 'picked_at' in order_data:
+                        order.picked_at = order_data['picked_at']
+                    if 'delivered_at' in order_data:
+                        order.delivered_at = order_data['delivered_at']
+                    if 'deadline_s' in order_data:
+                        order.deadline_s = order_data['deadline_s']
+
+                    # Restore tracking flags
+                    if '_was_released' in order_data:
+                        order._was_released = order_data['_was_released']
+                    if '_last_debug_time' in order_data and order_data['_last_debug_time']:
+                        order._last_debug_time = order_data['_last_debug_time']
+
+                    jobs._orders.append(order)
+
+                except Exception as e:
+                    print(
+                        f"GameSaveManager: Error restoring order {order_data.get('id', 'unknown')}: {e}")
+                    continue  # Skip this order and continue with others
+
+            print(f"GameSaveManager: Restored {len(jobs._orders)} orders")
+
+            # Restore player inventory with debug state
             player_inv_data = game_state['player_inventory_state']
             player_inv = game.get_player_inventory()
             player_inv.capacity_weight = player_inv_data['capacity_weight']
+            player_inv._debug_printed = player_inv_data.get(
+                '_debug_printed', False)
 
             # Restore accepted orders
             player_inv.accepted = []
-            for order_id in player_inv_data['accepted_orders']:
+            accepted_order_ids = player_inv_data.get('accepted_orders', [])
+            for order_id in accepted_order_ids:
                 for order in jobs._orders:
                     if order.id == order_id:
                         player_inv.accepted.append(order)
+                        print(
+                            f"GameSaveManager: Restored accepted order: {order_id}")
                         break
 
             # Restore active order
             player_inv.active = None
-            if player_inv_data['active_order_id']:
+            active_order_id = player_inv_data.get('active_order_id')
+            if active_order_id:
                 for order in jobs._orders:
-                    if order.id == player_inv_data['active_order_id']:
+                    if order.id == active_order_id:
                         player_inv.active = order
+                        print(
+                            f"GameSaveManager: Restored active order: {active_order_id}")
                         break
 
             # Restore scoreboard

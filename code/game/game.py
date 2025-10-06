@@ -1,4 +1,5 @@
 import pygame
+import time
 from typing import Optional
 
 from ..services.data_manager import DataManager
@@ -264,15 +265,23 @@ class Game:
         print("Game: Starting new game...")
         self._is_playing = True
         self._paused = False
+
         # Reset to full time (10 minutes)
         self._game_time_s = self._game_time_limit_s
         self._weather_timer = 0.0
         self._last_weather_change_time = 0.0
-        # First change after burst period
         self._next_scheduled_change = self._burst_period_s
-        self._scoreboard = Scoreboard(self._player_name)  # Reset scoreboard
 
-        # Create player at a valid starting position
+        # Reset scoreboard
+        self._scoreboard = Scoreboard(self._player_name)
+
+        # Reset jobs inventory - THIS IS CRUCIAL
+        self._jobs.reset_for_new_game()
+
+        # Reset player inventory
+        self._player_inv.reset_for_new_game()
+
+        # Create new player at a valid starting position
         start_x, start_y = 0, 0
         if self._city and getattr(self._city, "tiles", None):
             found = False
@@ -288,8 +297,16 @@ class Game:
                 if found:
                     break
 
+        # Create new player instance with fresh stats
         self._player = Player(start_x, start_y)
-        print(f"Game: Player created at position ({start_x}, {start_y})")
+
+        # Ensure player reputation is reset to initial value
+        print(f"Game: Setting initial player reputation to 70")
+        self._player.reputation = 70.0  # Always start with this value
+        self._player.reset_daily_reputation_tracking()
+
+        print(
+            f"Game: New game started - Player at ({start_x}, {start_y}), Reputation: {self._player.reputation}")
 
     def should_trigger_weather_change(self) -> bool:
         """
@@ -371,10 +388,35 @@ class Game:
     def update(self, delta_time: float) -> None:
         if not self._is_playing or self._paused:
             return
-        # Advance clock
+
+        # Advance clock - ensure proper time scaling
         try:
-            dt = max(0.0, float(delta_time))
-        except Exception:
+            # Make sure delta_time is in the expected range
+            dt = max(0.0, min(0.1, float(delta_time)))
+
+            # Debug time information - only print once every 10 seconds
+            if hasattr(self, '_last_update_time') and hasattr(self, '_last_debug_print_time'):
+                real_delta = time.time() - self._last_update_time
+                current_time = time.time()
+
+                # Only print debug info once every 10 seconds to avoid spam
+                if current_time - self._last_debug_print_time > 10:
+                    time_ratio = dt / real_delta if real_delta > 0 else 0
+                    if abs(1.0 - time_ratio) > 0.2:  # If more than 20% off
+                        print(
+                            f"Time debug: dt={dt:.4f}s, real={real_delta:.4f}s, ratio={time_ratio:.2f}")
+                    self._last_debug_print_time = current_time
+            else:
+                self._last_debug_print_time = time.time()
+
+            self._last_update_time = time.time()
+
+            # Apply a time correction factor to fix the slow game time
+            time_correction_factor = 2.0  # Adjust this value based on testing
+            dt *= time_correction_factor
+
+        except Exception as e:
+            print(f"Error processing delta time: {e}")
             dt = 0.0
 
         # Countdown timer (subtract time instead of adding)
@@ -384,6 +426,11 @@ class Game:
         if self.is_game_time_up():
             self._is_playing = False  # End game when time reaches 0
             print("Game Over - Time's up!")
+
+        # Check for game over due to reputation
+        if self._player and self._player.is_game_over_by_reputation():
+            self._is_playing = False  # End game when reputation < 20
+            print("Game Over - Reputation too low!")
 
         # Weather timing - increment timer
         self._weather_timer += dt
@@ -428,3 +475,21 @@ class Game:
                 pass
 
         return msg
+
+    def check_game_over_conditions(self) -> tuple[bool, str]:
+        """Check all game over conditions and return if game should end"""
+        if self._game_time_s <= 0:
+            return True, "Time's up!"
+
+        if self._player and self._player.is_game_over_by_reputation():
+            return True, "Reputation too low (<20)!"
+
+        # Add other game over conditions here
+
+        return False, ""
+        if self._player and self._player.is_game_over_by_reputation():
+            return True, "Reputation too low (<20)!"
+
+        # Add other game over conditions here
+
+        return False, ""

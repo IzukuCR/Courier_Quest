@@ -69,6 +69,21 @@ class Order:
             # Fallback to 10 minutes
             self.deadline_s = 600.0
 
+        # Debug information about deadline calculation
+        if hasattr(self, 'deadline_s'):
+            print(
+                f"Order {self.id}: Setting deadline - current value={self.deadline_s}")
+
+        # If the deadline is already extremely large, adjust it to something reasonable
+        if hasattr(self, 'deadline_s') and self.deadline_s and self.deadline_s > 300:
+            # Adjust it to be between 60-180 seconds based on priority
+            # Higher priority = tighter deadline
+            # Priority 1=150s, 2=120s, 3=90s, etc.
+            base_time = 180 - (self.priority * 30)
+            self.deadline_s = max(60, base_time)
+            print(
+                f"Order {self.id}: Adjusted deadline to {self.deadline_s}s (was too high)")
+
     def is_released(self, t: float) -> bool:
         """Check if the order has been released and is available.
 
@@ -142,3 +157,84 @@ class Order:
         """
         dropoff_x, dropoff_y = self.dropoff[0], self.dropoff[1]
         return abs(x - dropoff_x) <= 1 and abs(y - dropoff_y) <= 1
+
+    def __init__(self, id=None, pickup=None, dropoff=None, payout=0.0, deadline_iso=None,
+                 weight=1.0, priority=0, release_time=0):
+        self.id = id
+        self.pickup = pickup
+        self.dropoff = dropoff
+        self.payout = payout
+        self.weight = weight
+        self.priority = priority
+        self.state = "available"
+        self.deadline_s = None
+        self.release_time = release_time
+
+        self.accepted_at = None
+        self.picked_at = None
+        self.delivered_at = None
+
+        # Store the ISO deadline for reference
+        self.deadline_iso = deadline_iso
+
+        # Initialize with reasonable default deadline if none provided
+        if not deadline_iso:
+            # Default to 2 minutes from now for testing
+            self.deadline_s = 120
+
+    def set_deadline_from_start(self, start_iso=None):
+        """
+        Set a reasonable deadline based on priority rather than using ISO dates.
+        For a game with a 10-minute timer, we want shorter deadlines.
+        """
+        # Store original deadline for reference
+        original_deadline = self.deadline_s
+
+        # Set deadlines based on priority:
+        # Priority 0 = 120s, Priority 1 = 90s, Priority 2+ = 60s
+        if self.priority == 0:
+            base_time = 120
+        elif self.priority == 1:
+            base_time = 90  # Exactly 90 seconds for Priority 1
+        else:
+            base_time = 60  # 60 seconds for Priority 2+
+
+        # Add release time to get absolute game time
+        if hasattr(self, 'release_time') and self.release_time:
+            self.deadline_s = self.release_time + base_time
+        else:
+            self.deadline_s = base_time
+
+        # Debug log the change but only once
+        if not hasattr(self, '_deadline_debug_printed'):
+            if original_deadline:
+                print(
+                    f"Order {self.id}: Adjusted deadline to {self.deadline_s}s (was {original_deadline}s)")
+            else:
+                print(f"Order {self.id}: Set deadline to {self.deadline_s}s")
+            self._deadline_debug_printed = True
+
+    def is_expired(self, current_game_time):
+        """Check if order is expired based on game time"""
+        if self.state in ["delivered", "expired", "cancelled"]:
+            return True
+
+        # If no deadline, can't expire
+        if not self.deadline_s:
+            return False
+
+        # Calculate elapsed game time (assuming 600s total game time)
+        from ..game.game import Game
+        game = Game()
+        elapsed_game_time = game._game_time_limit_s - current_game_time
+
+        # Order is expired if current time exceeds deadline
+        return elapsed_game_time > self.deadline_s
+
+    def at_pickup(self, x, y):
+        """Check if player is at pickup location"""
+        return self.pickup and self.pickup[0] == x and self.pickup[1] == y
+
+    def at_dropoff(self, x, y):
+        """Check if player is at dropoff location"""
+        return self.dropoff and self.dropoff[0] == x and self.dropoff[1] == y

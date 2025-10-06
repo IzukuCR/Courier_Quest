@@ -62,9 +62,18 @@ class GameView(BaseView):
         self.toast = ""
         self.toast_timer = 0.0
 
-        # Order selection
-        self.jobs._selected_index = -1
-        self.selected = self.jobs.cycle_selection(self.game.get_game_time())
+        # Order selection - fix initialization
+        self.jobs._selected_index = 0  # Start with first order
+        # Try to get initial selection, but don't fail if no orders available yet
+        try:
+            self.selected = self.jobs.get_selected(self.game.get_game_time())
+            if not self.selected:
+                # If no order selected, try cycling to get first available
+                self.selected = self.jobs.cycle_selection(
+                    self.game.get_game_time())
+        except Exception as e:
+            print(f"GameView: Could not initialize order selection: {e}")
+            self.selected = None
 
         # Pause menu will be initialized in on_show()
         self.pause_menu = None
@@ -183,6 +192,16 @@ class GameView(BaseView):
                         self.toast, self.toast_timer = f"Accepted {self.selected.id}", 2.0
                     else:
                         self.toast, self.toast_timer = f"Could not accept {self.selected.id}", 2.0
+
+            elif event.key == pygame.K_c:
+                # Cancel active order with reputation penalty
+                if self.pinv.active:
+                    result = self.pinv.cancel_order()
+                    self.toast, self.toast_timer = result, 2.0
+                    # Check for game over
+                    if "GAME OVER" in result:
+                        # You might want to switch to a game over view here
+                        pass
 
             elif event.key == pygame.K_r:
                 new_active = self.pinv.next_active()
@@ -411,12 +430,56 @@ class GameView(BaseView):
         pygame.draw.rect(screen, (60, 60, 60),
                          (x, reputation_bar_y, bar_width, bar_height))
 
-        # Reputation progress (yellow/gold color)
+        # Reputation progress with color coding
         reputation_progress = reputation_value / 100.0
         reputation_width = int(bar_width * reputation_progress)
+
+        # Color based on reputation level
+        if reputation_value >= 90:
+            rep_color = (0, 255, 100)  # Green for excellence (≥90)
+        elif reputation_value >= 70:
+            rep_color = (255, 215, 0)  # Gold for good (≥70)
+        elif reputation_value >= 40:
+            rep_color = (255, 165, 0)  # Orange for medium (≥40)
+        elif reputation_value >= 20:
+            rep_color = (255, 100, 0)  # Red-orange for low (≥20)
+        else:
+            rep_color = (255, 0, 0)    # Red for critical (<20)
+
         if reputation_width > 0:
-            pygame.draw.rect(screen, (255, 215, 0),
+            pygame.draw.rect(screen, rep_color,
                              (x, reputation_bar_y, reputation_width, bar_height))
+
+        # Show reputation status text
+        rep_status_y = reputation_bar_y + bar_height + 5
+
+        if self.player:
+            rep_stats = self.player.get_reputation_stats()
+
+            # Show reputation status
+            if rep_stats["excellence_bonus"]:
+                rep_status = "Excellent! (+5% pay bonus)"
+                rep_status_color = (0, 255, 100)  # Green
+            elif rep_stats["first_late_discount"]:
+                rep_status = "Good (Half penalty on first late delivery)"
+                rep_status_color = (255, 215, 0)  # Gold
+            elif reputation_value < 30:
+                rep_status = "Warning: Low reputation!"
+                rep_status_color = (255, 100, 0)  # Red-orange
+            elif reputation_value < 20:
+                rep_status = "CRITICAL: Reputation too low!"
+                rep_status_color = (255, 0, 0)    # Red
+            else:
+                rep_status = f"Normal"
+                rep_status_color = (200, 200, 200)  # Light gray
+
+            # Show streak if > 0
+            if rep_stats["streak"] > 0:
+                streak_txt = f" | Streak: {rep_stats['streak']}/3"
+                rep_status += streak_txt
+
+            screen.blit(small_font.render(rep_status, True, rep_status_color),
+                        (x, rep_status_y))
 
         # Stamina bar
         stamina_y = reputation_bar_y + 40
@@ -525,14 +588,32 @@ class GameView(BaseView):
             screen.blit(self.font.render(
                 order_text, True, white), (x, order_info_y))
 
-            # Time left calculation (simplified for now)
+            # Time left calculation - FIXED with proper time formatting
             time_left_y = order_info_y + 25
             if self.pinv.active.deadline_s:
-                remaining = max(0, self.pinv.active.deadline_s -
-                                (self.game._game_time_limit_s - self.game.get_game_time()))
-                time_left_text = f"Time left: {remaining:.0f}s" if remaining > 0 else "Time left: 00:00"
+                # Calculate elapsed game time (600 - current countdown = elapsed time)
+                elapsed_game_time = self.game._game_time_limit_s - self.game.get_game_time()
+
+                # Calculate remaining time until deadline
+                remaining = max(
+                    0, self.pinv.active.deadline_s - elapsed_game_time)
+
+                # Prevent debug message spam - only log if values change significantly
+                if not hasattr(self, '_last_deadline_debug') or abs(self._last_deadline_debug - remaining) > 5:
+                    print(
+                        f"Debug - Order deadline: deadline={self.pinv.active.deadline_s:.1f}, elapsed={elapsed_game_time:.1f}, remaining={remaining:.1f}s")
+                    self._last_deadline_debug = remaining
+
+                # Format nicely with minutes:seconds if over 60 seconds
+                if remaining > 60:
+                    mins = int(remaining // 60)
+                    secs = int(remaining % 60)
+                    time_left_text = f"Time left: {mins}m {secs}s"
+                else:
+                    time_left_text = f"Time left: {remaining:.0f}s"
             else:
-                time_left_text = "Time left: 00:00"
+                time_left_text = "No deadline"
+
             screen.blit(self.font.render(time_left_text,
                         True, white), (x, time_left_y))
         else:
@@ -551,16 +632,39 @@ class GameView(BaseView):
         visible_orders = self.jobs.get_visible_orders(
             self.game.get_game_time())
 
-        # Show scroll indicators
-        if scroll_info['total_orders'] > scroll_info['visible_count']:
-            scroll_indicator_y = job_list_y - 15
+        # Calculate elapsed game time to check for unreleased orders
+        elapsed_game_time = self.game._game_time_limit_s - self.game.get_game_time()
 
-            # Up scroll indicator
-            up_color = (100, 255, 100) if scroll_info['can_scroll_up'] else (
-                60, 60, 60)
-            up_text = "↑" if scroll_info['can_scroll_up'] else "―"
-            screen.blit(small_font.render(up_text, True, up_color),
-                        (x + 85, scroll_indicator_y))
+        # Add a message if no jobs are available yet
+        if not visible_orders:
+            no_jobs_y = job_list_y + 20
+            screen.blit(small_font.render("No jobs available yet. More coming soon!",
+                        True, (200, 200, 200)), (x, no_jobs_y))
+
+        # Show upcoming jobs countdown (if any jobs haven't been released yet)
+        unreleased_jobs = [o for o in self.jobs.all() if o.state == "available"
+                           and getattr(o, 'release_time', 0) > elapsed_game_time]
+
+        # Show countdown when few jobs are visible
+        if unreleased_jobs and len(visible_orders) < 2:
+            next_job = min(unreleased_jobs, key=lambda o: o.release_time)
+            time_until_release = max(
+                0, next_job.release_time - elapsed_game_time)
+
+            # Only show if coming within 2 minutes
+            if time_until_release < 120:
+                next_job_y = job_list_y + \
+                    (0 if not visible_orders else len(visible_orders) * 35 + 10)
+
+                if time_until_release < 60:
+                    countdown_text = f"Next job in: {time_until_release:.0f}s"
+                else:
+                    mins = int(time_until_release // 60)
+                    secs = int(time_until_release % 60)
+                    countdown_text = f"Next job in: {mins}m {secs}s"
+
+                screen.blit(small_font.render(countdown_text, True,
+                                              (150, 200, 255)), (x, next_job_y))
 
         # Draw visible job items
         for i, order in enumerate(visible_orders):
@@ -826,6 +930,12 @@ class GameView(BaseView):
             self.font = pygame.font.Font(None, base_font_size)
             self.big = pygame.font.Font(None, big_font_size)
 
+            # Reset any view-specific debug tracking
+            if hasattr(self, '_last_deadline_debug'):
+                delattr(self, '_last_deadline_debug')
+            if hasattr(self, '_last_weather_notification'):
+                delattr(self, '_last_weather_notification')
+
             # Initialize pause menu with save functionality
             self.pause_menu = PauseMenu(self.window)
             print("GameView: Pause menu initialized with save functionality")
@@ -861,134 +971,5 @@ class GameView(BaseView):
             from .menu_view import MenuView
             menu_view = MenuView()
             self.window.show_view(menu_view)
-            if o.deadline_s is not None:
-                remaining = max(
-                    0, o.deadline_s - (self.game._game_time_limit_s - self.game.get_game_time()))
-                deadline_remaining = f" ({remaining:.0f}s)"
-
-            # Color coding based on priority and time
-            if o.priority >= 3:
-                text_color = (255, 200, 100)  # High priority - orange
-            elif o.priority >= 2:
-                text_color = (255, 255, 100)  # Medium priority - yellow
-            else:
-                text_color = white  # Normal priority - white
-
-            # Check if order is about to expire (less than 60 seconds)
-            if deadline_remaining and "s)" in deadline_remaining:
-                remaining_time = float(
-                    deadline_remaining.split("(")[1].split("s)")[0])
-                if remaining_time < 60:
-                    text_color = (255, 100, 100)  # Red for urgent
-
-            left = f"{tag} {o.id} w{int(o.weight)} p{int(o.priority)} ${int(o.payout)}{deadline_remaining}"
-
-            # Highlight selected order with background
-            if self.selected and self.selected.id == o.id:
-                # Draw selection background
-                selection_rect = pygame.Rect(
-                    x - 5, y - 2, self.window.get_scaled_size(200), int(line_height * 0.9))
-                pygame.draw.rect(screen, (50, 50, 100), selection_rect)
-                text_color = (255, 255, 255)  # White text for selected
-
-            screen.blit(self.font.render(left, True, text_color), (x, y))
-            y += int(line_height * 0.9)
-
-        # Update controls instructions
-        controls_y = y + section_spacing // 2
-        screen.blit(self.font.render("Controls:", True,
-                    self.window.colors['GRAY']), (x, controls_y))
-
-        controls_info = [
-            "TAB - Next order",
-            "Q - Previous order",
-            "E - Next page",
-            "X - Previous page",
-            "ENTER - Accept order",
-            "R - Switch active order",
-            "Z - Undo last move",
-            "WASD/Arrows - Move",
-            "ESC - Pause"
-        ]
-
-        controls_start_y = controls_y + line_height
-
-        for i, control in enumerate(controls_info):
-            control_y = controls_start_y + i * int(line_height * 0.8)
-            screen.blit(small_font.render(control, True,
-                        (200, 200, 200)), (x, control_y))
-
-        # Order status legend with colors
-        legend_y = controls_start_y + \
-            len(controls_info) * int(line_height * 0.8) + line_height // 2
-        screen.blit(self.font.render("Markers:", True,
-                    self.window.colors['GRAY']), (x, legend_y))
-
-        legend_start_y = legend_y + line_height
-
-        # Active order markers (current task)
-        screen.blit(small_font.render("Active Order:", True,
-                    (255, 255, 255)), (x, legend_start_y))
-        active_y = legend_start_y + int(line_height * 0.8)
-
-        # Draw pickup marker example
-        pickup_color = (0, 255, 100)  # Bright green
-        marker_size = int(line_height * 0.6)
-        pygame.draw.rect(screen, pickup_color, pygame.Rect(
-            x, active_y, marker_size, marker_size), 2)
-        pickup_font = pygame.font.Font(None, max(12, marker_size // 2))
-        pickup_text = pickup_font.render("P", True, pickup_color)
-        screen.blit(pickup_text, (x + marker_size //
-                    4, active_y + marker_size//4))
-        screen.blit(small_font.render("Pickup (Green)", True,
-                    (200, 200, 200)), (x + marker_size + 5, active_y))
-
-        # Draw dropoff marker example
-        dropoff_color = (255, 100, 0)  # Bright orange
-        dropoff_y = active_y + int(line_height * 0.8)
-        center_x = x + marker_size // 2
-        center_y = dropoff_y + marker_size // 2
-        pygame.draw.circle(screen, dropoff_color, (center_x,
-                           center_y), marker_size // 3)
-        dropoff_text = pickup_font.render("D", True, (255, 255, 255))
-        d_rect = dropoff_text.get_rect(center=(center_x, center_y))
-        screen.blit(dropoff_text, d_rect)
-        screen.blit(small_font.render("Dropoff (Orange)", True,
-                    (200, 200, 200)), (x + marker_size + 5, dropoff_y))
-
-        # Selected order markers (preview)
-        selected_y = dropoff_y + int(line_height * 1.2)
-        screen.blit(small_font.render("Selected Order:",
-                    True, (255, 255, 255)), (x, selected_y))
-        selected_start_y = selected_y + int(line_height * 0.8)
-
-        # Selected pickup marker
-        selected_pickup_color = (100, 150, 255)  # Light blue
-        pygame.draw.rect(screen, selected_pickup_color, pygame.Rect(
-            x, selected_start_y, marker_size, marker_size), 2)
-        sel_pickup_text = pickup_font.render("P", True, selected_pickup_color)
-        screen.blit(sel_pickup_text, (x + marker_size//4,
-                    selected_start_y + marker_size//4))
-        screen.blit(small_font.render("Pickup (Blue)", True,
-                    (200, 200, 200)), (x + marker_size + 5, selected_start_y))
-
-        # Selected dropoff marker
-        selected_dropoff_color = (255, 255, 100)  # Light yellow
-        sel_dropoff_y = selected_start_y + int(line_height * 0.8)
-        sel_center_x = x + marker_size // 2
-        sel_center_y = sel_dropoff_y + marker_size // 2
-        pygame.draw.circle(screen, selected_dropoff_color,
-                           (sel_center_x, sel_center_y), marker_size // 3)
-        sel_dropoff_text = pickup_font.render(
-            "D", True, (0, 0, 0))  # Black text on yellow
-        sel_d_rect = sel_dropoff_text.get_rect(
-            center=(sel_center_x, sel_center_y))
-        screen.blit(sel_dropoff_text, sel_d_rect)
-        screen.blit(small_font.render("Dropoff (Yellow)", True,
-                    (200, 200, 200)), (x + marker_size + 5, sel_dropoff_y))
-
-        # Toast positioning (keep at bottom)
-        if self.toast:
-            toast_y = self.window.height - self.window.get_scaled_size(100)
-            t = self.font.render(self.toast, True, (255, 255, 0))
-            screen.blit(t, (x, toast_y))
+            menu_view = MenuView()
+            self.window.show_view(menu_view)

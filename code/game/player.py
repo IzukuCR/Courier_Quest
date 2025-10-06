@@ -56,6 +56,17 @@ class Player:
         print(
             f"Player: Undo system initialized with {self.undo_system.max_steps} max steps")
 
+        # Reputation system tracking
+        self.successful_deliveries_streak = 0
+        self.had_first_late_delivery_today = False
+        self.daily_delivery_stats = {
+            "on_time": 0,
+            "early": 0,
+            "late": 0,
+            "canceled": 0,
+            "lost": 0
+        }
+
     def load_sprites(self):
         # Store original sprites for scaling
         self.original_sprites = {}
@@ -293,6 +304,11 @@ class Player:
             self.move_speed = 0.0
 
     def update(self, delta_time=1/60):
+        # Check if game is paused - don't update stamina recovery if paused
+        from .game import Game
+        game = Game()
+        is_paused = game.is_paused() if hasattr(game, 'is_paused') else False
+
         # update movement and animation
         if self.is_moving:
             # Update movement progress
@@ -305,27 +321,28 @@ class Player:
                 self.is_moving = False
                 self.move_progress = 0.0
         else:
-            # Player is not moving - accumulate idle time
-            self.idle_time += delta_time
+            # Player is not moving - accumulate idle time ONLY if game is not paused
+            if not is_paused:
+                self.idle_time += delta_time
 
-            # Check if enough idle time has passed for stamina recovery
-            if self.idle_time >= self.stamina_recovery_interval:
-                # Calculate how many recovery intervals have passed
-                recovery_cycles = int(
-                    self.idle_time // self.stamina_recovery_interval)
+                # Check if enough idle time has passed for stamina recovery
+                if self.idle_time >= self.stamina_recovery_interval:
+                    # Calculate how many recovery intervals have passed
+                    recovery_cycles = int(
+                        self.idle_time // self.stamina_recovery_interval)
 
-                if recovery_cycles > 0:
-                    # Recover stamina
-                    stamina_to_recover = self.stamina_recovery_rate * recovery_cycles
-                    old_stamina = self.stamina
-                    recovered = self.recover_stamina(stamina_to_recover)
+                    if recovery_cycles > 0:
+                        # Recover stamina
+                        stamina_to_recover = self.stamina_recovery_rate * recovery_cycles
+                        old_stamina = self.stamina
+                        recovered = self.recover_stamina(stamina_to_recover)
 
-                    # Reset idle time, keeping any fractional remainder
-                    self.idle_time = self.idle_time % self.stamina_recovery_interval
+                        # Reset idle time, keeping any fractional remainder
+                        self.idle_time = self.idle_time % self.stamina_recovery_interval
 
-                    if recovered > 0:
-                        print(
-                            f"Player: Recovered {recovered:.1f} stamina from resting (idle for {recovery_cycles}s)")
+                        if recovered > 0:
+                            print(
+                                f"Player: Recovered {recovered:.1f} stamina from resting (idle for {recovery_cycles}s)")
 
         # Update animation (always, even if not moving)
         self.animation_timer += 1
@@ -620,6 +637,156 @@ class Player:
         """Get undo system information for UI display"""
         return self.undo_system.get_info()
 
+    def update_reputation_delivery(self, delivery_time, deadline, is_canceled=False, is_lost=False):
+        """
+        Update reputation based on delivery outcome
+
+        Args:
+            delivery_time: Time when delivery was completed (elapsed game time)
+            deadline: Deadline for the delivery (elapsed game time)
+            is_canceled: Whether the order was canceled
+            is_lost: Whether the package was lost/expired
+
+        Returns:
+            dict: Information about reputation change
+        """
+        old_reputation = self.reputation
+        reputation_change = 0
+        message = ""
+
+        print(
+            f"DEBUG REPUTATION: delivery_time={delivery_time:.1f}, deadline={deadline:.1f}")
+
+        if is_canceled:
+            # Canceling an accepted order
+            reputation_change = -4
+            message = "Order canceled: -4 reputation"
+            self.successful_deliveries_streak = 0
+            self.daily_delivery_stats["canceled"] += 1
+
+        elif is_lost:
+            # Losing/expiring a package
+            reputation_change = -6
+            message = "Package lost/expired: -6 reputation"
+            self.successful_deliveries_streak = 0
+            self.daily_delivery_stats["lost"] += 1
+
+        else:
+            # Normal delivery - check timing
+            # delivery_time and deadline are both in elapsed game time
+            time_remaining = deadline - delivery_time
+            early_threshold = deadline * 0.2  # 20% of the total deadline time
+
+            print(
+                f"DEBUG REPUTATION: time_remaining={time_remaining:.1f}, early_threshold={early_threshold:.1f}")
+
+            if time_remaining >= early_threshold:
+                # Early delivery (≥20% before deadline)
+                reputation_change = 5
+                message = "Early delivery: +5 reputation"
+                self.successful_deliveries_streak += 1
+                self.daily_delivery_stats["early"] += 1
+
+            elif time_remaining >= 0:
+                # On-time delivery
+                reputation_change = 3
+                message = "On-time delivery: +3 reputation"
+                self.successful_deliveries_streak += 1
+                self.daily_delivery_stats["on_time"] += 1
+
+            else:
+                # Late delivery
+                late_seconds = -time_remaining  # Convert to positive number
+                self.daily_delivery_stats["late"] += 1
+
+                # Apply half penalty for first late delivery if reputation ≥ 85
+                apply_half_penalty = (
+                    self.reputation >= 85 and not self.had_first_late_delivery_today)
+
+                if late_seconds <= 30:
+                    base_penalty = -2
+                    penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                    reputation_change = penalty
+                    message = f"Slightly late delivery ({late_seconds:.1f}s): {penalty} reputation"
+                elif late_seconds <= 120:
+                    base_penalty = -5
+                    penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                    reputation_change = penalty
+                    message = f"Late delivery ({late_seconds:.1f}s): {penalty} reputation"
+                else:
+                    base_penalty = -10
+                    penalty = base_penalty / 2 if apply_half_penalty else base_penalty
+                    reputation_change = penalty
+                    message = f"Very late delivery ({late_seconds:.1f}s): {penalty} reputation"
+
+                # Mark first late delivery used
+                if apply_half_penalty:
+                    self.had_first_late_delivery_today = True
+
+                # Reset streak on late delivery
+                self.successful_deliveries_streak = 0
+
+        # Check for streak bonus (3 successful deliveries without penalties)
+        streak_bonus = 0
+        if self.successful_deliveries_streak == 3:
+            streak_bonus = 2
+            message += " + Streak bonus: +2 reputation"
+            # Don't reset streak, allow it to keep counting for visibility
+
+        # Apply reputation change with minimum safety
+        total_change = reputation_change + streak_bonus
+
+        # IMPORTANT FIX: Ensure we never lose more than 20% reputation in one go
+        if total_change < 0:
+            # Ensure there's always at least a small reputation loss for negative events
+            # But no more than 20% of current reputation
+            min_loss = -1.0  # At minimum, always lose 1 point
+            max_loss = min(abs(total_change), max(1.0, old_reputation * 0.20))
+
+            # If reputation is already at or near 0, use minimal loss
+            if old_reputation <= 5.0:
+                actual_loss = min_loss
+            else:
+                actual_loss = max_loss
+
+            # Never reduce below 20 (game over threshold) from a single event
+            if old_reputation - actual_loss < 20.0 and old_reputation >= 20.0:
+                actual_loss = old_reputation - 20.0
+                print(
+                    f"DEBUG REPUTATION: Limiting loss to prevent dropping below game over threshold")
+
+            print(
+                f"DEBUG REPUTATION: Processing loss: raw={total_change}, adjusted to -{actual_loss:.1f}")
+            total_change = -actual_loss
+
+        print(
+            f"DEBUG REPUTATION: old={old_reputation:.1f}, change={total_change:.1f}")
+        self.add_reputation(total_change)
+
+        new_reputation = self.reputation
+        print(
+            f"DEBUG REPUTATION: new={new_reputation:.1f}, absolute loss={old_reputation - new_reputation:.1f}")
+
+        # Check game over condition
+        game_over = self.reputation < 20
+
+        return {
+            "old_reputation": old_reputation,
+            "new_reputation": self.reputation,
+            "change": total_change,
+            "streak": self.successful_deliveries_streak,
+            "message": message,
+            "game_over": game_over
+        }
+
+    def cancel_order(self):
+        """Handle reputation penalty when player cancels an order"""
+        return self.update_reputation_delivery(0, 0, is_canceled=True)
+
+    def lose_package(self):
+        """Handle reputation penalty when player loses a package or it expires"""
+        return self.update_reputation_delivery(0, 0, is_lost=True)
+
     def get_reputation(self) -> float:
         """Get current reputation value"""
         return self.reputation
@@ -629,5 +796,64 @@ class Player:
         self.reputation = max(0.0, min(100.0, value))
 
     def add_reputation(self, amount: float):
-        """Add to reputation value"""
-        self.reputation = max(0.0, min(100.0, self.reputation + amount))
+        """Add to reputation value with improved safeguards"""
+        old_rep = self.reputation
+
+        # Calculate new reputation with min/max bounds
+        new_rep = max(0.0, min(100.0, self.reputation + amount))
+
+        # Special case: if reputation was already at or near zero, and we're trying to decrease it further
+        if amount < 0 and old_rep < 5.0:
+            # Keep at the current value or ensure it's at least 1
+            new_rep = max(1.0, old_rep)
+            print(
+                f"DEBUG REPUTATION: Already at minimal reputation, keeping at {new_rep}")
+
+        # Final assignment
+        self.reputation = new_rep
+
+        # Debug information
+        if amount != 0:
+            print(
+                f"DEBUG REPUTATION: Final adjustment: {old_rep:.1f} → {self.reputation:.1f} (change: {self.reputation - old_rep:.1f})")
+
+    def reset_daily_reputation_tracking(self):
+        """Reset daily tracking variables and ensure reputation is not 0 (call at start of new game day)"""
+        self.had_first_late_delivery_today = False
+        self.daily_delivery_stats = {
+            "on_time": 0,
+            "early": 0,
+            "late": 0,
+            "canceled": 0,
+            "lost": 0
+        }
+
+        # Ensure reputation is not 0 at game start - should always start at 70
+        if self.reputation < 20.0:
+            self.reputation = 70.0
+            print(
+                f"DEBUG REPUTATION: Reset reputation to {self.reputation} for new game")
+
+    def get_payment_multiplier(self):
+        """Calculate payment multiplier based on reputation"""
+        # 5% bonus for reputation ≥ 90
+        if self.reputation >= 90:
+            return 1.05
+        return 1.0
+
+    def is_game_over_by_reputation(self):
+        """Check if reputation has dropped below game-over threshold"""
+        return self.reputation < 20
+
+    def get_reputation_stats(self):
+        """Get comprehensive stats about reputation and delivery performance"""
+        return {
+            "reputation": self.reputation,
+            "streak": self.successful_deliveries_streak,
+            "payment_multiplier": self.get_payment_multiplier(),
+            "had_first_late_delivery_today": self.had_first_late_delivery_today,
+            "daily_stats": self.daily_delivery_stats,
+            "excellence_bonus": self.reputation >= 90,
+            "first_late_discount": self.reputation >= 85 and not self.had_first_late_delivery_today,
+            "game_over": self.reputation < 20
+        }
