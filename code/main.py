@@ -12,10 +12,11 @@ from .services.api_client import APIClient
 
 print(f"pygame Version: {pygame.__version__}")
 
+
 def main():
     """
     Main function that starts the game.
-    
+
     This function creates a game instance, loads the city map,
     and starts the main window. If something goes wrong, it
     prints an error message.

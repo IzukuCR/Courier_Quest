@@ -189,7 +189,14 @@ class PlayerSetupView(BaseView):
         game = Game()
         game.set_player_name(self.player_name)  # Set player name
 
+        # Start new game first so game state (city, jobs, player_inv, etc.) is initialized
         game.start_new_game()  # Reset game state for new game
+
+        # Pass selected AI difficulty from AIMenuView (if any)
+        ai_choice = getattr(self.window, "selected_ai", None)
+        if ai_choice is not None:
+            # Call the real method name set_difficulty on Game
+            game.set_difficulty(ai_choice)
 
         from .instructions_view import InstructionsView
         # Switch to instructions view

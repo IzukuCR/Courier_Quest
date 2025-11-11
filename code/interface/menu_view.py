@@ -84,10 +84,10 @@ class MenuView(BaseView):
         print(f"MenuView: Button clicked: {button_key}")
 
         if button_key == "play":
-            print("Starting new game...")
-            from .player_setup_view import PlayerSetupView
-            player_setup_view = PlayerSetupView()
-            self.window.show_view(player_setup_view)
+            print("Selecting AI difficulty...")
+            from .ai_menu import AIMenuView
+            ai_menu = AIMenuView()
+            self.window.show_view(ai_menu)
 
         elif button_key == "load":
             from .load_game_view import LoadGameView

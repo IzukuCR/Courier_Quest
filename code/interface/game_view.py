@@ -1,4 +1,6 @@
 import pygame
+
+from code.interface.ai_view import AIView
 from .base_view import BaseView
 from ..game.game import Game
 from .pause_menu import PauseMenu
@@ -26,7 +28,7 @@ class GameView(BaseView):
         else:
             self.matrix = []
 
-        # Dynamic sizing - will be set in on_show()
+        # Dynamic sizing - will be set in (on_show)()
         self.cell_size = 30
         self.map_offset_x = 20
         self.map_offset_y = 20
@@ -38,40 +40,38 @@ class GameView(BaseView):
             "B": (139, 69, 19),      # BROWN
         }
 
-
         self.font = pygame.font.Font(None, 24)
         self.big = pygame.font.Font(None, 32)
         self.small_font = pygame.font.Font(None, 18)
         self.title_font = pygame.font.Font(None, 28)
-        
-       
+
         self.retro_colors = {
             'COPPER': (184, 115, 51),         # Warm copper/bronze
             'SAGE_GREEN': (159, 190, 87),     # Muted sage green
             'STEEL_BLUE': (70, 130, 180),     # Classic steel blue
             'WARM_AMBER': (255, 191, 0),      # Elegant amber
             'SOFT_PINK': (221, 160, 221),     # Muted plum/pink
-            
+
             # Background and UI colors
             'CHARCOAL': (54, 69, 79),         # dark gray
             'CREAM': (245, 245, 220),         # Warm off-white
             'DARK_NAVY': (36, 49, 56),        # Deep navy for backgrounds
             'SILVER': (192, 192, 192),        # Classic silver
-            
-            # Status indicators 
+
+            # Status indicators
             'SUCCESS': (106, 168, 79),        # Muted forest green
             'WARNING': (218, 165, 32),        # Goldenrod
             'DANGER': (205, 92, 92),          # Indian red
             'INFO': (100, 149, 237),          # Cornflower blue
-            
+
             # Text hierarchy
             'PRIMARY_TEXT': (245, 245, 220),  # Cream for main text
-            'SECONDARY_TEXT': (192, 192, 192),# Silver for secondary
+            'SECONDARY_TEXT': (192, 192, 192),  # Silver for secondary
             'ACCENT_TEXT': (184, 115, 51),    # Copper for accents
             'DIM_TEXT': (128, 128, 128),      # Gray for less important
         }
 
-        # Store original tile images for scaling 
+        # Store original tile images for scaling
         self.original_tile_images = {}
         self.tile_images = {}
         self.current_tile_size = 30
@@ -107,6 +107,9 @@ class GameView(BaseView):
 
         # Pause menu will be initialized in on_show()
         self.pause_menu = None
+
+        # Initialize AI view (will be set when AI is created)
+        self.ai_view = None
 
     def load_tile_images(self):
         """Load original tile images without scaling - scaling happens dynamically"""
@@ -346,6 +349,11 @@ class GameView(BaseView):
                     pygame.draw.rect(screen, (0, 0, 0), rect, 1)
         # pickup / dropoff markers (internal helper using self/screen)
 
+        # Draw AI bot after map but before markers
+        if self.ai_view:
+            self.ai_view.draw(screen, self.cell_size,
+                              self.map_offset_x, self.map_offset_y)
+
         def draw_enhanced_marker(pos, col, marker_type="pickup"):
             if not pos:
                 return
@@ -397,7 +405,7 @@ class GameView(BaseView):
     def _draw_hud(self, screen):
         # Dynamic HUD positioning
         x = self.window.hud_x
-        
+
         primary_text = self.retro_colors['PRIMARY_TEXT']
         secondary_text = self.retro_colors['SECONDARY_TEXT']
         accent_text = self.retro_colors['ACCENT_TEXT']
@@ -410,7 +418,6 @@ class GameView(BaseView):
         line_height = self.window.get_scaled_size(20)
         section_spacing = self.window.get_scaled_size(30)
 
-
         small_font = self.small_font
         medium_font = self.font
         title_font = self.title_font
@@ -420,10 +427,11 @@ class GameView(BaseView):
         panel_y = 10
         panel_width = 400
         panel_height = 70
-        
+
         # Draw top panel with border
-        self._draw_panel_with_border(screen, panel_x, panel_y, panel_width, panel_height)
-        
+        self._draw_panel_with_border(
+            screen, panel_x, panel_y, panel_width, panel_height)
+
         # Time - countdown from 10 minutes
         time_x = panel_x + 15
         time_y = panel_y + 15
@@ -441,7 +449,8 @@ class GameView(BaseView):
             time_color = steel_blue
 
         time_text = f"TIME: {mins:02d}:{secs:02d}"
-        screen.blit(self.big.render(time_text, True, time_color), (time_x, time_y))
+        screen.blit(self.big.render(time_text, True,
+                    time_color), (time_x, time_y))
 
         # Scoreboard (right side of panel)
         scoreboard_x = panel_x + 200
@@ -460,16 +469,16 @@ class GameView(BaseView):
         status_panel_y = panel_y + panel_height + 10
         status_panel_width = 300
         status_panel_height = 170  # Increased height for stamina bar
-        
+
         # Draw status panel with title
-        content_y = self._draw_panel_with_border(screen, panel_x, status_panel_y, 
-                                               status_panel_width, status_panel_height, 
-                                               "PLAYER STATUS", sage_green)
+        content_y = self._draw_panel_with_border(screen, panel_x, status_panel_y,
+                                                 status_panel_width, status_panel_height,
+                                                 "PLAYER STATUS", sage_green)
 
         # Reputation section
         reputation_y = content_y + 10
         reputation_label = "Reputation"
-        screen.blit(medium_font.render(reputation_label, True, 
+        screen.blit(medium_font.render(reputation_label, True,
                     secondary_text), (panel_x + 15, reputation_y))
 
         # Reputation progress bar
@@ -492,15 +501,20 @@ class GameView(BaseView):
 
         # Color based on reputation level
         if reputation_value >= 90:
-            rep_color = self.retro_colors['SUCCESS']       # Forest green for excellence (≥90)
+            # Forest green for excellence (≥90)
+            rep_color = self.retro_colors['SUCCESS']
         elif reputation_value >= 70:
-            rep_color = warm_amber                         # Warm amber for good (≥70)
+            # Warm amber for good (≥70)
+            rep_color = warm_amber
         elif reputation_value >= 40:
-            rep_color = copper                            # Copper for medium (≥40)
+            # Copper for medium (≥40)
+            rep_color = copper
         elif reputation_value >= 20:
-            rep_color = self.retro_colors['WARNING']       # Goldenrod for low (≥20)
+            # Goldenrod for low (≥20)
+            rep_color = self.retro_colors['WARNING']
         else:
-            rep_color = self.retro_colors['DANGER']        # Indian red for critical (<20)
+            # Indian red for critical (<20)
+            rep_color = self.retro_colors['DANGER']
 
         if reputation_width > 0:
             pygame.draw.rect(screen, rep_color,
@@ -539,7 +553,8 @@ class GameView(BaseView):
 
         # Add divider line between sections
         divider_y = reputation_bar_y + 30
-        self._draw_section_divider(screen, panel_x + 15, divider_y, status_panel_width - 30)
+        self._draw_section_divider(
+            screen, panel_x + 15, divider_y, status_panel_width - 30)
 
         # Stamina section
         stamina_y = divider_y + 15
@@ -561,13 +576,17 @@ class GameView(BaseView):
 
             # Stamina progress bar color based on state (elegant colors)
             if is_in_recovery_mode:
-                bar_color = self.retro_colors['DANGER']    # Elegant red for recovery
+                # Elegant red for recovery
+                bar_color = self.retro_colors['DANGER']
             elif stamina > 30:
-                bar_color = self.retro_colors['SUCCESS']   # Forest green - normal
+                # Forest green - normal
+                bar_color = self.retro_colors['SUCCESS']
             elif stamina > 0:
-                bar_color = self.retro_colors['WARNING']   # Elegant yellow - tired
+                # Elegant yellow - tired
+                bar_color = self.retro_colors['WARNING']
             else:
-                bar_color = self.retro_colors['DANGER']    # Elegant red - exhausted
+                # Elegant red - exhausted
+                bar_color = self.retro_colors['DANGER']
 
             stamina_progress = stamina / 100.0
             stamina_width = int(bar_width * stamina_progress)
@@ -642,35 +661,35 @@ class GameView(BaseView):
         order_panel_y = status_panel_y + status_panel_height + 15
         order_panel_width = 350
         order_panel_height = 160  # Increased height for multiple orders
-        
+
         # Draw order panel with title
-        order_content_y = self._draw_panel_with_border(screen, panel_x, order_panel_y, 
-                                                     order_panel_width, order_panel_height, 
-                                                     "ACTIVE ORDERS", steel_blue)
+        order_content_y = self._draw_panel_with_border(screen, panel_x, order_panel_y,
+                                                       order_panel_width, order_panel_height,
+                                                       "ACTIVE ORDERS", steel_blue)
 
         if self.pinv.accepted:
             # Calculate elapsed game time once for all orders
             elapsed_game_time = self.game._game_time_limit_s - self.game.get_game_time()
-            
+
             current_y = order_content_y + 10
-            
+
             # Show up to 3 orders (adjust based on panel height)
             visible_orders = self.pinv.accepted[:3]  # Show first 3 orders
-            
+
             for i, order in enumerate(visible_orders):
                 is_active = (order == self.pinv.active)
-                
+
                 # Order info line
                 order_prefix = "► " if is_active else "  "
                 order_text = f"{order_prefix}{order.id} (P:{order.priority})"
                 text_color = primary_text if is_active else secondary_text
-                screen.blit(small_font.render(order_text, True, text_color), 
-                           (panel_x + 15, current_y))
-                
+                screen.blit(small_font.render(order_text, True, text_color),
+                            (panel_x + 15, current_y))
+
                 # Time/status info on same line
                 status_text = ""
                 status_color = secondary_text
-                
+
                 if order.deadline_s:
                     time_remaining = order.deadline_s - elapsed_game_time
                     if time_remaining < 0:
@@ -681,20 +700,21 @@ class GameView(BaseView):
                     else:
                         # On time
                         status_text = f" {time_remaining:.0f}s"
-                        status_color = (100, 255, 100) if time_remaining > 60 else (255, 200, 100)
-                
+                        status_color = (100, 255, 100) if time_remaining > 60 else (
+                            255, 200, 100)
+
                 # Payment info
                 payment_text = f" ${int(order.payout)}"
-                screen.blit(small_font.render(status_text + payment_text, True, status_color), 
-                           (panel_x + 160, current_y))
-                
+                screen.blit(small_font.render(status_text + payment_text, True, status_color),
+                            (panel_x + 160, current_y))
+
                 current_y += 20
-            
+
             # Show count if there are more orders
             if len(self.pinv.accepted) > 3:
                 more_text = f"... and {len(self.pinv.accepted) - 3} more"
-                screen.blit(small_font.render(more_text, True, self.retro_colors['DIM_TEXT']), 
-                           (panel_x + 15, current_y))
+                screen.blit(small_font.render(more_text, True, self.retro_colors['DIM_TEXT']),
+                            (panel_x + 15, current_y))
         else:
             no_order_y = order_content_y + 10
             screen.blit(medium_font.render("No active orders",
@@ -704,11 +724,11 @@ class GameView(BaseView):
         jobs_panel_y = order_panel_y + order_panel_height + 15
         jobs_panel_width = 350
         jobs_panel_height = 200
-        
+
         # Draw jobs panel with title
-        jobs_content_y = self._draw_panel_with_border(screen, panel_x, jobs_panel_y, 
-                                                    jobs_panel_width, jobs_panel_height, 
-                                                    "AVAILABLE JOBS", copper)
+        jobs_content_y = self._draw_panel_with_border(screen, panel_x, jobs_panel_y,
+                                                      jobs_panel_width, jobs_panel_height,
+                                                      "AVAILABLE JOBS", copper)
 
         # Job list with scrolling
         job_list_y = jobs_content_y + 10
@@ -843,8 +863,9 @@ class GameView(BaseView):
                         (128, 128, 128)), (x + 100, down_indicator_y))
 
         # INSTRUCTIONS AND MARKERS SECTION - lado a lado, más abajo para evitar solapamiento
-        bottom_section_y = jobs_panel_y + jobs_panel_height + 15  # Positioned after jobs panel
-        
+        bottom_section_y = jobs_panel_y + jobs_panel_height + \
+            15  # Positioned after jobs panel
+
         # INSTRUCTIONS COLUMN (izquierda)
         instructions_x = x
         screen.blit(small_font.render("Instructions", True,
@@ -853,7 +874,7 @@ class GameView(BaseView):
         # Updated instructions
         instructions = [
             "TAB - Next job",
-            "Q - Previous job", 
+            "Q - Previous job",
             "ENTER - Accept job",
             "X - Discard active order",
             "R - Switch active order",
@@ -1014,6 +1035,10 @@ class GameView(BaseView):
             if self.toast_timer <= 0:
                 self.toast = ""
 
+        # Update AI view animation
+        if self.ai_view:
+            self.ai_view.update(delta_time)
+
     def on_show(self):
         """Initialize responsive layout when view is shown"""
         if self.window:
@@ -1063,6 +1088,11 @@ class GameView(BaseView):
             # Initialize pause menu with save functionality
             self.pause_menu = PauseMenu(self.window)
             print("GameView: Pause menu initialized with save functionality")
+
+            if hasattr(self.game, 'ai_bot') and self.game.ai_bot:
+                self.ai_view = AIView(self.game.ai_bot)
+                print(
+                    f"GameView: AI view initialized for {self.game.ai_bot.get_name()}")
 
         print("Game view shown with responsive layout")
 
@@ -1142,44 +1172,46 @@ class GameView(BaseView):
     def _draw_panel_with_border(self, screen, x, y, width, height, title=None, title_color=None):
         """Draw a panel with elegant border and shadow"""
         shadow_offset = 3
-        
+
         # Draw shadow first
-        shadow_rect = pygame.Rect(x + shadow_offset, y + shadow_offset, width, height)
+        shadow_rect = pygame.Rect(
+            x + shadow_offset, y + shadow_offset, width, height)
         pygame.draw.rect(screen, (20, 20, 20), shadow_rect)  # Dark shadow
-        
+
         # Draw main panel background
         panel_rect = pygame.Rect(x, y, width, height)
         pygame.draw.rect(screen, self.retro_colors['CHARCOAL'], panel_rect)
-        
+
         # Draw elegant border
         pygame.draw.rect(screen, self.retro_colors['SILVER'], panel_rect, 2)
-        
+
         # Draw inner border for depth
         inner_rect = pygame.Rect(x + 2, y + 2, width - 4, height - 4)
         pygame.draw.rect(screen, self.retro_colors['DARK_NAVY'], inner_rect, 1)
-        
+
         # Draw title bar if provided
         if title and title_color:
             title_height = 25
             title_rect = pygame.Rect(x, y, width, title_height)
-            pygame.draw.rect(screen, self.retro_colors['DARK_NAVY'], title_rect)
+            pygame.draw.rect(
+                screen, self.retro_colors['DARK_NAVY'], title_rect)
             pygame.draw.rect(screen, title_color, title_rect, 2)
-            
+
             # Center title text
             title_surface = self.title_font.render(title, True, title_color)
             title_x = x + (width - title_surface.get_width()) // 2
             title_y = y + (title_height - title_surface.get_height()) // 2
             screen.blit(title_surface, (title_x, title_y))
-            
+
             return y + title_height + 5  # Return content start position
-        
+
         return y + 5  # Return content start position
 
     def _draw_section_divider(self, screen, x, y, width):
         """Draw an elegant section divider"""
         # Main line
-        pygame.draw.line(screen, self.retro_colors['SILVER'], 
-                        (x, y), (x + width, y), 2)
+        pygame.draw.line(screen, self.retro_colors['SILVER'],
+                         (x, y), (x + width, y), 2)
         # Accent line below
-        pygame.draw.line(screen, self.retro_colors['COPPER'], 
-                        (x, y + 3), (x + width // 3, y + 3), 1)
+        pygame.draw.line(screen, self.retro_colors['COPPER'],
+                         (x, y + 3), (x + width // 3, y + 3), 1)

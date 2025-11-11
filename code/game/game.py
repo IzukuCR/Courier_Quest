@@ -1,5 +1,7 @@
 import pygame
 import time
+import threading
+from .abstract_AI import EasyAI, HardAI, MediumAI
 from typing import Optional
 
 from ..services.data_manager import DataManager
@@ -95,6 +97,12 @@ class Game:
         except Exception as e:
             print(f"Game: Error initializing save manager: {e}")
             self._save_manager = None
+
+        # AI Bots
+        self.difficulty = "Normal"
+        self.ai_bot = None
+        self.bot_thread = None
+        self.bot_running = False
 
     def set_player_name(self, name):
         self._player_name = name
@@ -540,3 +548,49 @@ class Game:
 
         # Otherwise, keep playing
         return False
+
+    def set_difficulty(self, difficulty: str):
+        """Create the corresponding AI based on the selected difficulty."""
+        self.difficulty = difficulty.capitalize()
+
+        if self.difficulty == "Easy":
+            self.ai_bot = EasyAI(start_x=12, start_y=12)
+        elif self.difficulty == "Medium":
+            self.ai_bot = MediumAI(start_x=12, start_y=12)
+        elif self.difficulty == "Hard":
+            self.ai_bot = HardAI(start_x=12, start_y=12)
+        else:
+            self.ai_bot = None
+
+        print(f"[Game] AI created: {self.ai_bot.get_name()}")
+
+    def start_bot(self):
+        """Inicia el hilo del bot de IA en paralelo al juego."""
+        if not self.ai_bot:
+            print("[Game] No AI assigned. Initialization aborted.")
+            return
+
+        if not self.bot_running:
+            print(f"[Game] Starting AI: {self.ai_bot.get_name()}")
+            self.bot_running = True
+            self.bot_thread = threading.Thread(
+                target=self._run_bot_loop, daemon=True)
+            self.bot_thread.start()
+
+    def _run_bot_loop(self):
+        """Bucle de ejecución del bot (hilo separado)."""
+        clock = pygame.time.Clock()
+        while self.bot_running:
+            delta_time = clock.tick(30) / 1000.0  # 30 ticks/seg
+            try:
+                # La IA ejecuta su lógica interna
+                self.ai_bot.run_bot_logic(self, delta_time)
+            except Exception as e:
+                print(f"[AI ERROR] {e}")
+                self.bot_running = False
+                break
+
+            # Condición de salida (por ejemplo: reputación o tiempo)
+            if self.ai_bot.is_game_over_by_reputation():
+                print("[AI] Game over por reputación baja.")
+                self.bot_running = False
