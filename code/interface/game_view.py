@@ -1089,10 +1089,16 @@ class GameView(BaseView):
             self.pause_menu = PauseMenu(self.window)
             print("GameView: Pause menu initialized with save functionality")
 
+            # Initialize and start AI if present
             if hasattr(self.game, 'ai_bot') and self.game.ai_bot:
                 self.ai_view = AIView(self.game.ai_bot)
                 print(
                     f"GameView: AI view initialized for {self.game.ai_bot.get_name()}")
+                
+                # Start the AI bot thread
+                if not self.game.bot_running:
+                    self.game.start_bot()
+                    print(f"GameView: AI bot started - {self.game.ai_bot.get_name()}")
 
         print("Game view shown with responsive layout")
 

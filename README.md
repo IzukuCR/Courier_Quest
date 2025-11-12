@@ -1,6 +1,6 @@
-# Courier Quest
+# Courier Quest - Part 2: AI Implementation
 
-Un videojuego de entrega desarrollado en Python usando Pygame donde el jugador controla un repartidor en bicicleta que debe completar pedidos en una ciudad mientras gestiona tiempo, clima, inventario y reputación.
+Un videojuego de entrega desarrollado en Python usando Pygame donde el jugador controla un repartidor en bicicleta que debe completar pedidos en una ciudad mientras gestiona tiempo, clima, inventario y reputación. **Ahora con jugador CPU (IA) en tres niveles de dificultad.**
 
 # Integrantes del Grupo
 - Isaac Rodriguez Aguero
@@ -12,6 +12,8 @@ https://docs.google.com/document/d/1YgJ_xAt9MFufSFnJceTfLrB9dwXMMx64OqryTdlHwSA/
 # Descripción
 
 Este proyecto implementa un videojuego donde el jugador es un repartidor que debe completar pedidos en una ciudad. El objetivo es alcanzar una meta de ingresos antes de que termine el tiempo, mientras se gestionan varios factores como resistencia del jugador, cambios climáticos, peso del inventario y sistema de reputación.
+
+**Nuevo en Parte 2:** Competencia contra un jugador CPU (IA) con tres niveles de dificultad que utiliza diferentes algoritmos y estructuras de datos.
 
 # Instrucciones de Instalación
 
@@ -163,12 +165,70 @@ for existing_version in file_data["versions"]:
 **Complejidad:** O(v × c) donde v es número de versiones y c es el tamaño del contenido
 **Uso:** Evitar guardar datos duplicados en el cache de la API
 
+## AI Implementation (Part 2)
+
+### Easy AI - Random Decision Making
+**Archivo:** `code/game/abstract_AI.py` - clase `EasyAI`
+
+**Descripción:** IA que toma decisiones aleatorias usando lógica probabilística simple y colas FIFO.
+
+**Estructuras de datos:**
+- `List[Order]` - Lista de pedidos aceptados por la IA
+- `deque(maxlen=5)` - Cola FIFO para gestionar direcciones de movimiento
+
+**Algoritmos:**
+- Selección aleatoria de trabajos: O(n) donde n = trabajos disponibles
+- Movimiento aleatorio: O(1) por decisión
+- Movimiento hacia objetivo: 70% probabilidad hacia target, 30% aleatorio
+
+**Complejidad temporal:** O(n) donde n = número de trabajos disponibles
+**Complejidad espacial:** O(k) donde k = número de órdenes aceptadas (max 3)
+
+**Características:**
+- Selección completamente aleatoria de trabajos disponibles
+- Movimiento probabilístico hacia objetivos (70% dirigido, 30% aleatorio)
+- No planifica rutas ni optimiza decisiones
+- Usa cola FIFO para evitar retrocesos inmediatos
+
+**Documentación completa:** Ver `EASY_AI_DOCUMENTATION.md`
+
+### Medium AI - Greedy Evaluation (Coming Soon)
+**Archivo:** `code/game/abstract_AI.py` - clase `MediumAI`
+
+**Descripción:** IA que evalúa movimientos futuros usando heurísticas y árboles de decisión.
+
+**Estructuras de datos planeadas:**
+- Árboles de decisión (2-3 niveles de profundidad)
+- Listas de acciones candidatas
+
+**Algoritmos planeados:**
+- Búsqueda Greedy con evaluación heurística
+- Función de scoring: `score = α*payout - β*distance - γ*weather_penalty`
+
+### Hard AI - Graph-Based Optimization (Coming Soon)
+**Archivo:** `code/game/abstract_AI.py` - clase `HardAI`
+
+**Descripción:** IA que usa algoritmos de grafos para encontrar rutas óptimas.
+
+**Estructuras de datos planeadas:**
+- Grafo ponderado representando la ciudad
+- Cola de prioridad (heap) para Dijkstra/A*
+- Tabla de distancias mínimas
+
+**Algoritmos planeados:**
+- Dijkstra o A* para búsqueda de camino más corto
+- TSP aproximado para secuenciar entregas
+- Replanificación dinámica según clima
+
 ## Arquitectura del Proyecto
 ### Organización de Módulos:
 - `core/` - Contiene las clases principales (Order, City)
-- `game/` - Lógica principal del juego (Game, Player, inventarios)
+- `game/` - Lógica principal del juego (Game, Player, inventarios, **AI**)
 - `interface/` - Interfaz gráfica y menús (usando Pygame)
 - `services/` - Servicios externos (API, gestión de datos)
 - `weather/` - Sistema de clima dinámico
+- `ai/` - Recursos visuales para el bot de IA
+
+
 
 
