@@ -192,18 +192,59 @@ for existing_version in file_data["versions"]:
 
 **Documentación completa:** Ver `EASY_AI_DOCUMENTATION.md`
 
-### Medium AI - Greedy Evaluation (Coming Soon)
+### Medium AI - Lookahead Tree with Greedy Evaluation
 **Archivo:** `code/game/abstract_AI.py` - clase `MediumAI`
 
-**Descripción:** IA que evalúa movimientos futuros usando heurísticas y árboles de decisión.
+**Descripción:** IA que evalúa secuencias de movimientos futuros (2-3 pasos adelante) usando árboles de decisión y evaluación heurística estilo Expectimax.
 
-**Estructuras de datos planeadas:**
-- Árboles de decisión (2-3 niveles de profundidad)
-- Listas de acciones candidatas
+**Estructuras de datos:**
+- `List[Order]` - Lista de pedidos aceptados (máximo 2)
+- `List[(Order, float)]` - Lista de trabajos evaluados con sus scores
+- **Árbol de decisión N-ario** (profundidad 2-3) para evaluación de movimientos futuros
+  - Nodo raíz: Posición actual
+  - Nivel 1: Hasta 4 posiciones alcanzables en 1 movimiento
+  - Nivel 2: Hasta 16 posiciones alcanzables en 2 movimientos
+  - Total: ~20 nodos explorados por decisión
+- `deque(maxlen=8)` - Cola para detectar loops en posiciones recientes
 
-**Algoritmos planeados:**
-- Búsqueda Greedy con evaluación heurística
-- Función de scoring: `score = α*payout - β*distance - γ*weather_penalty`
+**Algoritmos:**
+- **Expectimax-style Lookahead**: Construye árbol de profundidad 2 y evalúa todas las secuencias de movimientos - O(4^d) donde d=2
+- **Greedy Job Selection**: Evalúa todos los trabajos disponibles con función heurística y selecciona el mejor - O(n log n)
+- **Heuristic Scoring**: `score = α*payout - β*distance - γ*weather_penalty + priority_bonus` - O(1)
+- **BFS Tree Building**: Usa cola para construir árbol nivel por nivel - O(4^d)
+
+**Complejidad temporal:** O(4^d) donde d=profundidad del lookahead (2-3), dominado por exploración del árbol
+**Complejidad espacial:** O(4^d) para almacenar nodos del árbol
+
+**Características:**
+- **Horizonte de anticipación**: Evalúa 2-3 movimientos hacia adelante (según especificación)
+- **Exploración exhaustiva**: Examina todas las secuencias posibles de movimientos en el horizonte
+- **Evaluación acumulativa**: Suma scores de todas las posiciones en cada camino
+- **Decisión greedy**: Selecciona el primer movimiento del camino con mejor score acumulado
+- Selección inteligente de trabajos basada en múltiples factores (pago, distancia, clima, prioridad)
+- Más conservadora que Easy AI (acepta máximo 2 trabajos vs 3)
+- Prefiere caminos en carretera ('C') sobre otros terrenos
+- Fallback a evaluación greedy simple si árbol falla
+- **Anti-loop**: Detecta loops (2 posiciones únicas en 6 movimientos) y fuerza exploración aleatoria por 5 movimientos
+- **10% randomness**: Previene caer en patrones determinísticos
+
+**Parámetros configurables:**
+- `lookahead_depth` = 2 - Profundidad del árbol de decisión
+- α (alpha) = 1.0 - Peso del pago
+- β (beta) = 2.0 - Peso de la distancia
+- γ (gamma) = 5.0 - Peso de penalización climática
+
+**Algoritmo implementado:** Expectimax (recomendado por especificación como más fácil que Minimax completo)
+
+**Ejemplo de evaluación:**
+```
+Posición actual → [UP, DOWN, LEFT, RIGHT] (4 opciones nivel 1)
+                   ↓
+Cada opción → [UP, DOWN, LEFT, RIGHT] (4 opciones nivel 2)
+                   ↓
+Total: 4 + 16 = 20 nodos evaluados
+Elige: Primera dirección del camino con mejor score acumulado
+```
 
 ### Hard AI - Graph-Based Optimization (Coming Soon)
 **Archivo:** `code/game/abstract_AI.py` - clase `HardAI`
