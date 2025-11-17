@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 import pygame
 import os
 
+from code.game import game
+
 
 class AbstractAI(ABC):
     """
@@ -28,7 +30,8 @@ class AbstractAI(ABC):
         self.streak = 0
         self.base_speed = 3.0
         self.current_speed = 3.0
-        self.weight = 0  # Start with 0 weight, not 8 (8 is the maximum capacity)
+        # Start with 0 weight, not 8 (8 is the maximum capacity)
+        self.weight = 0
         self.resistance_state = "normal"
 
         # Stamina system
@@ -63,6 +66,8 @@ class AbstractAI(ABC):
 
         # Update speed based on initial stats
         self.update_move_speed()
+
+        self.jobs = None
 
     def move_to(self, new_x, new_y, city, weather) -> bool:
 
@@ -741,122 +746,124 @@ class AbstractAI(ABC):
 class EasyAI(AbstractAI):
     """
     Easy difficulty AI using random decision making.
-    
+
     This AI uses simple probabilistic logic and queue-based movement.
     It randomly selects jobs and moves in random directions, avoiding
     only obvious obstacles.
-    
+
     Complexity Analysis:
     - Job selection: O(n) where n is number of available jobs
     - Movement: O(1) per direction choice
     - Queue operations: O(1) for enqueue/dequeue
-    
+
     Data Structures Used:
     - List: For storing available jobs and directions
     - Queue (FIFO): For managing movement direction sequence
     """
-    
+
     def __init__(self, start_x=0, start_y=0):
         """
         Initialize Easy AI with random movement capabilities.
-        
+
         Args:
             start_x (int): Starting x position on the map
             start_y (int): Starting y position on the map
         """
         super().__init__(start_x, start_y)
-        
+
         # AI-specific inventory system
         from collections import deque
         self.accepted_orders = []  # List to store accepted orders
         self.active_order = None   # Currently active order
-        self.direction_queue = deque(maxlen=5)  # FIFO queue for movement directions
-        
+        # FIFO queue for movement directions
+        self.direction_queue = deque(maxlen=5)
+
         # Decision making timers
         self.decision_timer = 0.0
         self.decision_interval = 2.0  # Make decision every 2 seconds
-        
+
         # Random behavior configuration
-        self.direction_change_probability = 0.15  # 15% chance for random move (reduced from 30%)
+        # 15% chance for random move (reduced from 30%)
+        self.direction_change_probability = 0.15
         self.job_selection_timer = 0.0
         self.job_selection_interval = 3.0  # Check for jobs every 3 seconds
-        
+
         # Current target (if any)
         self.target_position = None
         self.target_type = None  # "pickup" or "dropoff"
-        
+
     def get_name(self):
         """Return AI difficulty name."""
         return "Easy"
-    
+
     def _select_random_job(self, game):
         """
         Randomly select an available job from the jobs inventory.
-        
+
         AI must wait 3 seconds after an order appears before selecting it,
         giving human players a fair chance to grab orders first.
-        
+
         Uses random selection from a list of available jobs.
-        
+
         Complexity: O(n) where n is number of available jobs
-        
+
         Args:
             game: The game instance to access job inventory
-            
+
         Returns:
             Order or None: Randomly selected order if available
         """
         import random
-        
-        jobs_inventory = game.get_jobs()
+
+        jobs_inventory = self.jobs
         game_time = game.get_game_time()
-        
+
         # Get all selectable jobs
         available_jobs = jobs_inventory.selectable(game_time)
-        
+
         if not available_jobs:
             return None
-        
+
         # Filter jobs: AI must wait 3 seconds after order appears
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         eligible_jobs = []
         for job in available_jobs:
             time_since_appearance = elapsed_game_time - job.release_time
             if time_since_appearance >= 3.0:  # Wait 3 seconds
                 eligible_jobs.append(job)
-        
+
         if not eligible_jobs:
             return None
-        
+
         # Random selection from eligible jobs - O(1) operation on list
         selected_job = random.choice(eligible_jobs)
-        
+
         return selected_job
-    
+
     def _accept_job(self, game, order):
         """
         Accept a job and add it to AI's inventory.
-        
+
         Args:
             game: The game instance
             order: The order to accept
-            
+
         Returns:
             bool: True if job was accepted successfully
         """
         if not order:
             return False
-        
+
         # Get current elapsed game time
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         # Mark as accepted
         order.state = "accepted"
         order.accepted_at = elapsed_game_time
-        
+
         # Set deadline based on priority
         if order.priority == 0:
             base_time = 120
@@ -864,43 +871,46 @@ class EasyAI(AbstractAI):
             base_time = 90
         else:
             base_time = 60
-        
+
         order.deadline_s = elapsed_game_time + base_time
-        
+
         # Add to accepted orders list
         if order not in self.accepted_orders:
             self.accepted_orders.append(order)
-        
+
         # Set as active if no active order
         if self.active_order is None:
             self.active_order = order
             self.target_position = order.pickup
             self.target_type = "pickup"
-            distance = abs(self.x - order.pickup[0]) + abs(self.y - order.pickup[1])
-            print(f"[EasyAI] Accepted job {order.id} (Priority {order.priority}) - heading to pickup at {order.pickup} (distance: {distance} tiles)")
+            distance = abs(
+                self.x - order.pickup[0]) + abs(self.y - order.pickup[1])
+            print(
+                f"[EasyAI] Accepted job {order.id} (Priority {order.priority}) - heading to pickup at {order.pickup} (distance: {distance} tiles)")
         else:
-            print(f"[EasyAI] Accepted additional job {order.id} (Priority {order.priority}) - will handle after current job")
-        
+            print(
+                f"[EasyAI] Accepted additional job {order.id} (Priority {order.priority}) - will handle after current job")
+
         return True
-    
+
     def _get_random_direction(self, game):
         """
         Get a random valid movement direction.
-        
+
         Uses queue to maintain recent directions and avoid immediate backtracking.
-        
+
         Complexity: O(1) per direction check
-        
+
         Args:
             game: The game instance to access city map
-            
+
         Returns:
             tuple: (dx, dy) direction vector or None
         """
         import random
-        
+
         city = game.get_city()
-        
+
         # All possible directions: up, down, left, right
         all_directions = [
             (0, -1),   # UP
@@ -908,58 +918,58 @@ class EasyAI(AbstractAI):
             (-1, 0),   # LEFT
             (1, 0),    # RIGHT
         ]
-        
+
         # Shuffle to randomize
         random.shuffle(all_directions)
-        
+
         # Try each direction until we find a valid one
         for dx, dy in all_directions:
             new_x = self.x + dx
             new_y = self.y + dy
-            
+
             # Check if position is valid and not blocked
             if city.is_valid_position(new_x, new_y) and not city.is_blocked(new_x, new_y):
                 return (dx, dy)
-        
+
         # No valid direction found
         return None
-    
+
     def _move_towards_target(self, game, target_pos):
         """
         Make a movement that generally moves towards target.
-        
+
         Uses probabilistic approach: 85% chance to move towards target,
         15% chance to move randomly (to avoid getting stuck).
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
             target_pos: (x, y) tuple of target position
-            
+
         Returns:
             bool: True if movement was attempted
         """
         import random
-        
+
         if not target_pos:
             return False
-        
+
         target_x, target_y = target_pos
         city = game.get_city()
         weather = game.get_weather()
-        
+
         # Calculate general direction to target
         dx = 0 if target_x == self.x else (1 if target_x > self.x else -1)
         dy = 0 if target_y == self.y else (1 if target_y > self.y else -1)
-        
+
         # 85% chance to move towards target, 15% chance to move randomly (to avoid getting stuck)
         if random.random() < 0.85 and (dx != 0 or dy != 0):
             # Try to move towards target
             # Prioritize the direction with larger distance
             distance_x = abs(target_x - self.x)
             distance_y = abs(target_y - self.y)
-            
+
             if dx != 0 and dy != 0:
                 # Need to move in both directions - choose the one with larger distance
                 if distance_x > distance_y:
@@ -974,10 +984,10 @@ class EasyAI(AbstractAI):
                         move_dx, move_dy = 0, dy
             else:
                 move_dx, move_dy = dx, dy
-            
+
             new_x = self.x + move_dx
             new_y = self.y + move_dy
-            
+
             # Check if valid
             if city.is_valid_position(new_x, new_y) and not city.is_blocked(new_x, new_y):
                 return self.move_to(new_x, new_y, city, weather)
@@ -995,7 +1005,7 @@ class EasyAI(AbstractAI):
                     alt_y = self.y
                     if city.is_valid_position(alt_x, alt_y) and not city.is_blocked(alt_x, alt_y):
                         return self.move_to(alt_x, alt_y, city, weather)
-        
+
         # Random movement fallback (when probability fails or blocked)
         direction = self._get_random_direction(game)
         if direction:
@@ -1003,130 +1013,133 @@ class EasyAI(AbstractAI):
             new_x = self.x + dx
             new_y = self.y + dy
             return self.move_to(new_x, new_y, city, weather)
-        
+
         return False
-    
+
     def _check_pickup_delivery(self, game):
         """
         Check if AI is at pickup or delivery location and handle it.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
-            
+
         Returns:
             str or None: Status message if action was taken
         """
         if not self.active_order:
             return None
-        
+
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         # Check pickup
         if self.active_order.state == "accepted":
             pickup_x, pickup_y = self.active_order.pickup
             distance = max(abs(self.x - pickup_x), abs(self.y - pickup_y))
-            
+
             if distance <= 1:  # Adjacent or at location
                 # Pick up the package
                 if self.weight + self.active_order.weight <= 8.0:
                     self.active_order.state = "carrying"
                     self.active_order.picked_at = elapsed_game_time
                     self.weight += self.active_order.weight
-                    
+
                     # Update target to dropoff
                     self.target_position = self.active_order.dropoff
                     self.target_type = "dropoff"
-                    
-                    new_distance = abs(self.x - self.active_order.dropoff[0]) + abs(self.y - self.active_order.dropoff[1])
-                    print(f"[EasyAI] ✓ Picked up {self.active_order.id} - Now heading to dropoff at {self.active_order.dropoff} (distance: {new_distance} tiles)")
+
+                    new_distance = abs(
+                        self.x - self.active_order.dropoff[0]) + abs(self.y - self.active_order.dropoff[1])
+                    print(
+                        f"[EasyAI] ✓ Picked up {self.active_order.id} - Now heading to dropoff at {self.active_order.dropoff} (distance: {new_distance} tiles)")
                     return f"Package {self.active_order.id} picked up"
                 else:
-                    print(f"[EasyAI] ✗ Cannot pick up {self.active_order.id} - overweight (current: {self.weight:.1f}, package: {self.active_order.weight:.1f})")
-        
+                    print(
+                        f"[EasyAI] ✗ Cannot pick up {self.active_order.id} - overweight (current: {self.weight:.1f}, package: {self.active_order.weight:.1f})")
+
         # Check delivery
         elif self.active_order.state == "carrying":
             dropoff_x, dropoff_y = self.active_order.dropoff
             distance = max(abs(self.x - dropoff_x), abs(self.y - dropoff_y))
-            
+
             if distance <= 1:  # Adjacent or at location
                 # Deliver the package
                 deadline = getattr(self.active_order, 'deadline_s', 0)
                 overtime_seconds = max(0, elapsed_game_time - deadline)
-                
+
                 # Update reputation based on delivery time
                 rep_result = self.update_reputation_delivery(
-                    elapsed_game_time, 
+                    elapsed_game_time,
                     deadline,
                     overtime_seconds=overtime_seconds
                 )
-                
+
                 # Calculate payout with multiplier
                 payment_multiplier = self.get_payment_multiplier()
                 payout = self.active_order.payout * payment_multiplier
-                
+
                 # Reduce weight
                 self.weight = max(0, self.weight - self.active_order.weight)
-                
+
                 # Remove from accepted orders
                 if self.active_order in self.accepted_orders:
                     self.accepted_orders.remove(self.active_order)
-                
+
                 delivered_id = self.active_order.id
                 timing_msg = "on time" if overtime_seconds == 0 else f"{overtime_seconds:.0f}s late"
-                print(f"[EasyAI] ✓ Delivered {delivered_id} ({timing_msg}) - Earned ${payout:.0f} - Reputation: {self.reputation:.1f}")
-                
+                print(
+                    f"[EasyAI] ✓ Delivered {delivered_id} ({timing_msg}) - Earned ${payout:.0f} - Reputation: {self.reputation:.1f}")
+
                 # Clear active order and target
                 self.active_order = None
                 self.target_position = None
                 self.target_type = None
-                
+
                 # Select next order if available
                 if self.accepted_orders:
                     self.active_order = self.accepted_orders[0]
                     self.target_position = self.active_order.pickup if self.active_order.state == "accepted" else self.active_order.dropoff
                     self.target_type = "pickup" if self.active_order.state == "accepted" else "dropoff"
-                    print(f"[EasyAI] → Next job: {self.active_order.id} - heading to {self.target_type}")
+                    print(
+                        f"[EasyAI] → Next job: {self.active_order.id} - heading to {self.target_type}")
                 else:
                     print(f"[EasyAI] → All jobs completed, looking for new jobs...")
-                
+
                 return f"Delivered {delivered_id}"
-        
+
         return None
 
     def run_bot_logic(self, game, delta_time):
         """
         Main AI logic loop for Easy difficulty.
-        
+
         This method implements random decision-making with basic queue-based
         movement. The AI:
         1. Randomly selects available jobs
         2. Moves towards targets with some randomness
         3. Uses FIFO queue for direction management
-        
+
         Time Complexity: O(n) where n is number of available jobs
         Space Complexity: O(k) where k is queue size (constant at 5)
-        
+
         Args:
             game: The game instance containing all game state
             delta_time (float): Time elapsed since last update in seconds
         """
-        # Update AI state (stamina recovery, animation, etc.)
-        self.update(delta_time)
-        
+
         # Don't make decisions or move if game is paused
         if game.is_paused():
             return
-        
+
         # Update timers
         self.decision_timer += delta_time
         self.job_selection_timer += delta_time
-        
+
         # Check for pickup/delivery at current position
         self._check_pickup_delivery(game)
-        
+
         # Job selection logic - try to get a job if we don't have one
         # Try immediately if no active order, otherwise wait for interval
         should_select_job = False
@@ -1135,14 +1148,14 @@ class EasyAI(AbstractAI):
         elif self.job_selection_timer >= self.job_selection_interval:
             should_select_job = True
             self.job_selection_timer = 0.0
-        
+
         if should_select_job:
             # Only accept new jobs if we have capacity
             if len(self.accepted_orders) < 3 and self.weight < 8.0:
                 job = self._select_random_job(game)
                 if job:
                     self._accept_job(game, job)
-        
+
         # Movement logic - only move if not currently animating (same as human player)
         if not self.is_moving:
             # If we have a target, move towards it
@@ -1152,7 +1165,7 @@ class EasyAI(AbstractAI):
                     abs(self.x - self.target_position[0]),
                     abs(self.y - self.target_position[1])
                 )
-                
+
                 if distance_to_target <= 1:
                     # We're at the target - pickup/delivery should handle next step
                     # Just stay here, don't move randomly
@@ -1175,104 +1188,105 @@ class EasyAI(AbstractAI):
 class MediumAI(AbstractAI):
     """
     Medium difficulty AI using greedy decision-making with heuristic evaluation.
-    
+
     This AI uses a simple decision tree (2-3 levels) to evaluate jobs and 
     movements based on multiple factors. It makes smarter choices than Easy AI
     by considering distance, payout, weather, and priorities.
-    
+
     Complexity Analysis:
     - Job selection: O(n log n) where n is number of available jobs (sorting)
     - Movement: O(k) where k is number of adjacent cells to evaluate (typically 4)
     - Heuristic evaluation: O(1) per job/move
-    
+
     Data Structures Used:
     - List: For storing candidate jobs and evaluated options
     - Tree (implicit): Decision tree for job evaluation (2-3 levels)
     - Sorted list: Jobs sorted by heuristic score
     """
-    
+
     def __init__(self, start_x=0, start_y=0):
         """
         Initialize Medium AI with greedy evaluation capabilities.
-        
+
         Args:
             start_x (int): Starting x position on the map
             start_y (int): Starting y position on the map
         """
         super().__init__(start_x, start_y)
-        
+
         # AI-specific inventory system
         self.accepted_orders = []  # List to store accepted orders
         self.active_order = None   # Currently active order
-        
+
         # Decision making timers
         self.decision_timer = 0.0
         self.decision_interval = 1.5  # Faster decisions than Easy AI
-        
+
         # Heuristic weights for scoring function
         # score = α*payout - β*distance - γ*weather_penalty
         self.alpha = 1.0   # Payout weight
         self.beta = 2.0    # Distance weight (higher = prioritize closer jobs)
         self.gamma = 5.0   # Weather penalty weight
-        
+
         # Job selection configuration
         self.job_selection_timer = 0.0
         self.job_selection_interval = 3.0  # Check for jobs every 3 seconds
         self.max_jobs = 2  # More conservative than Easy AI (2 vs 3)
-        
+
         # Current target
         self.target_position = None
         self.target_type = None  # "pickup" or "dropoff"
-        
+
         # Decision tree state
         self.last_evaluation_results = []  # Store last evaluation for debugging
-        
+
         # Lookahead configuration (Expectimax-style)
-        self.lookahead_depth = 2  # Evaluate 2 moves ahead (as per spec: 2-3 actions)
+        # Evaluate 2 moves ahead (as per spec: 2-3 actions)
+        self.lookahead_depth = 2
         self.max_branches = 4  # 4 directions per node (UP, DOWN, LEFT, RIGHT)
-        
+
         # Anti-loop mechanism (simple and effective)
         from collections import deque
         self.recent_positions = deque(maxlen=8)  # Track recent positions
         self.stuck_in_loop = False
         self.random_moves_remaining = 0
-        
+
     def get_name(self):
         """Return AI difficulty name."""
         return "Medium"
-    
+
     def _manhattan_distance(self, pos1, pos2):
         """
         Calculate Manhattan distance between two positions.
-        
+
         Complexity: O(1)
-        
+
         Args:
             pos1: (x, y) tuple
             pos2: (x, y) tuple
-            
+
         Returns:
             int: Manhattan distance
         """
         return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
-    
+
     def _evaluate_job_score(self, game, order):
         """
         Evaluate a job using heuristic scoring function.
-        
+
         This implements a simple decision tree:
         Level 1: Is job valid and not expired?
         Level 2: Calculate base score (payout - distance)
         Level 3: Apply weather and priority modifiers
-        
+
         Score formula: score = α*payout - β*distance - γ*weather_penalty + priority_bonus
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
             order: The order to evaluate
-            
+
         Returns:
             float: Heuristic score (higher is better)
         """
@@ -1280,18 +1294,20 @@ class MediumAI(AbstractAI):
         game_time = game.get_game_time()
         if order.state != "available" or order.is_expired(game_time):
             return float('-inf')  # Invalid job
-        
+
         # Level 2: Base score calculation
         # Calculate distance to pickup
-        pickup_distance = self._manhattan_distance((self.x, self.y), order.pickup)
-        
+        pickup_distance = self._manhattan_distance(
+            (self.x, self.y), order.pickup)
+
         # Calculate total distance (pickup + delivery)
-        delivery_distance = self._manhattan_distance(order.pickup, order.dropoff)
+        delivery_distance = self._manhattan_distance(
+            order.pickup, order.dropoff)
         total_distance = pickup_distance + delivery_distance
-        
+
         # Base score: payout vs distance
         base_score = self.alpha * order.payout - self.beta * total_distance
-        
+
         # Level 3: Apply modifiers
         # Weather penalty
         weather = game.get_weather()
@@ -1304,103 +1320,104 @@ class MediumAI(AbstractAI):
                 weather_penalty = 8.0   # Moderate penalty for rain
             elif condition == "cloudy":
                 weather_penalty = 3.0   # Light penalty for clouds
-        
+
         # Priority bonus (higher priority = better score)
         priority_bonus = order.priority * 10.0
-        
+
         # Weight check - can we carry it?
         if self.weight + order.weight > 8.0:
             return float('-inf')  # Can't carry
-        
+
         # Final score
         final_score = base_score - self.gamma * weather_penalty + priority_bonus
-        
+
         return final_score
-    
+
     def _select_best_job(self, game):
         """
         Select the best job using greedy algorithm with heuristic evaluation.
-        
+
         AI must wait 3 seconds after an order appears before selecting it,
         giving human players a fair chance to grab orders first.
-        
+
         Uses sorting to find the job with highest score.
-        
+
         Complexity: O(n log n) where n is number of available jobs
-        
+
         Args:
             game: The game instance
-            
+
         Returns:
             Order or None: Best job according to heuristic
         """
-        jobs_inventory = game.get_jobs()
+        jobs_inventory = self.jobs
         game_time = game.get_game_time()
-        
+
         # Get all selectable jobs
         available_jobs = jobs_inventory.selectable(game_time)
-        
+
         if not available_jobs:
             return None
-        
+
         # Filter jobs: AI must wait 3 seconds after order appears
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         eligible_jobs = []
         for job in available_jobs:
             time_since_appearance = elapsed_game_time - job.release_time
             if time_since_appearance >= 3.0:  # Wait 3 seconds
                 eligible_jobs.append(job)
-        
+
         if not eligible_jobs:
             return None
-        
+
         # Evaluate eligible jobs - O(n)
         job_scores = []
         for job in eligible_jobs:
             score = self._evaluate_job_score(game, job)
             if score > float('-inf'):  # Only consider valid jobs
                 job_scores.append((job, score))
-        
+
         if not job_scores:
             return None
-        
+
         # Sort by score (descending) - O(n log n)
         job_scores.sort(key=lambda x: x[1], reverse=True)
-        
+
         # Store evaluation results for debugging
         self.last_evaluation_results = job_scores[:5]  # Top 5
-        
+
         # Greedy selection: pick the best
         best_job, best_score = job_scores[0]
-        
-        print(f"[MediumAI] Evaluated {len(job_scores)} jobs - Best: {best_job.id} (score: {best_score:.1f})")
-        
+
+        print(
+            f"[MediumAI] Evaluated {len(job_scores)} jobs - Best: {best_job.id} (score: {best_score:.1f})")
+
         return best_job
-    
+
     def _accept_job(self, game, order):
         """
         Accept a job and add it to AI's inventory.
-        
+
         Args:
             game: The game instance
             order: The order to accept
-            
+
         Returns:
             bool: True if job was accepted successfully
         """
         if not order:
             return False
-        
+
         # Get current elapsed game time
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         # Mark as accepted
         order.state = "accepted"
         order.accepted_at = elapsed_game_time
-        
+
         # Set deadline based on priority
         if order.priority == 0:
             base_time = 120
@@ -1408,35 +1425,38 @@ class MediumAI(AbstractAI):
             base_time = 90
         else:
             base_time = 60
-        
+
         order.deadline_s = elapsed_game_time + base_time
-        
+
         # Add to accepted orders list
         if order not in self.accepted_orders:
             self.accepted_orders.append(order)
-        
+
         # Set as active if no active order
         if self.active_order is None:
             self.active_order = order
             self.target_position = order.pickup
             self.target_type = "pickup"
             distance = self._manhattan_distance((self.x, self.y), order.pickup)
-            print(f"[MediumAI] ✓ Accepted job {order.id} (Priority {order.priority}, ${order.payout}) - distance: {distance} tiles")
+            print(
+                f"[MediumAI] ✓ Accepted job {order.id} (Priority {order.priority}, ${order.payout}) - distance: {distance} tiles")
         else:
-            print(f"[MediumAI] Accepted additional job {order.id} - will handle after current")
-        
+            print(
+                f"[MediumAI] Accepted additional job {order.id} - will handle after current")
+
         return True
-    
+
     class TreeNode:
         """
         Node in the decision tree for lookahead evaluation.
-        
+
         Represents a potential game state after a sequence of moves.
         """
+
         def __init__(self, position, direction, score, depth, parent=None):
             """
             Initialize a tree node.
-            
+
             Args:
                 position: (x, y) tuple of position
                 direction: (dx, dy) tuple of direction taken to reach this node
@@ -1450,11 +1470,11 @@ class MediumAI(AbstractAI):
             self.depth = depth
             self.parent = parent
             self.children = []  # Child nodes (possible next moves)
-        
+
         def add_child(self, child):
             """Add a child node to this node."""
             self.children.append(child)
-        
+
         def get_root_direction(self):
             """Get the first direction from root to reach this node."""
             if self.depth == 1:
@@ -1462,37 +1482,37 @@ class MediumAI(AbstractAI):
             elif self.parent:
                 return self.parent.get_root_direction()
             return None
-    
+
     def _evaluate_position_score(self, game, position, target_pos):
         """
         Evaluate the score of being at a specific position.
-        
+
         Used for lookahead tree evaluation.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
             position: (x, y) tuple of position to evaluate
             target_pos: Target position tuple
-            
+
         Returns:
             float: Score for this position (higher is better)
         """
         city = game.get_city()
         x, y = position
-        
+
         # Check if valid
         if not city.is_valid_position(x, y) or city.is_blocked(x, y):
             return float('-inf')
-        
+
         # Calculate distance to target
         distance = self._manhattan_distance(position, target_pos)
-        
+
         # Base score: inverse of distance (closer is better)
         # Multiply by 10 to make it significant
         score = -distance * 10.0
-        
+
         # Terrain bonus (prefer roads 'C' over other terrain)
         if y < len(city.tiles) and x < len(city.tiles[0]):
             tile_type = city.tiles[y][x]
@@ -1500,35 +1520,35 @@ class MediumAI(AbstractAI):
                 score += 3.0  # Bonus for roads
             elif tile_type == 'P':  # Park/grass
                 score += 1.0  # Small bonus
-        
+
         return score
-    
+
     def _build_lookahead_tree(self, game, start_pos, target_pos, depth):
         """
         Build a decision tree by exploring possible move sequences.
-        
+
         Creates a tree structure representing all possible move sequences
         up to 'depth' moves ahead. Each node represents a position and
         stores the cumulative score of reaching that position.
-        
+
         Tree structure:
         - Root (depth 0): Current position
         - Level 1: All positions reachable in 1 move (up to 4 nodes)
         - Level 2: All positions reachable in 2 moves (up to 16 nodes)
-        
+
         Complexity: O(4^d) where d is depth (4 directions per level)
-        
+
         Args:
             game: The game instance
             start_pos: (x, y) starting position
             target_pos: Target position for scoring
             depth: How many moves ahead to look
-            
+
         Returns:
             TreeNode: Root node of the decision tree
         """
         city = game.get_city()
-        
+
         # Create root node
         root = self.TreeNode(
             position=start_pos,
@@ -1537,18 +1557,18 @@ class MediumAI(AbstractAI):
             depth=0,
             parent=None
         )
-        
+
         # BFS to build tree level by level
         from collections import deque
         queue = deque([root])
-        
+
         while queue:
             current_node = queue.popleft()
-            
+
             # Stop expanding if we've reached max depth
             if current_node.depth >= depth:
                 continue
-            
+
             # Try all 4 directions
             directions = [
                 (0, -1),   # UP
@@ -1556,26 +1576,27 @@ class MediumAI(AbstractAI):
                 (-1, 0),   # LEFT
                 (1, 0),    # RIGHT
             ]
-            
+
             for dx, dy in directions:
                 new_x = current_node.position[0] + dx
                 new_y = current_node.position[1] + dy
                 new_pos = (new_x, new_y)
-                
+
                 # Check if valid move
                 if not city.is_valid_position(new_x, new_y) or city.is_blocked(new_x, new_y):
                     continue
-                
+
                 # Evaluate score for this position
-                position_score = self._evaluate_position_score(game, new_pos, target_pos)
-                
+                position_score = self._evaluate_position_score(
+                    game, new_pos, target_pos)
+
                 # Skip if invalid position
                 if position_score == float('-inf'):
                     continue
-                
+
                 # Cumulative score = parent score + this position's score
                 cumulative_score = current_node.score + position_score
-                
+
                 # Create child node
                 child = self.TreeNode(
                     position=new_pos,
@@ -1584,46 +1605,46 @@ class MediumAI(AbstractAI):
                     depth=current_node.depth + 1,
                     parent=current_node
                 )
-                
+
                 # Add to tree
                 current_node.add_child(child)
-                
+
                 # Add to queue for further expansion
                 if child.depth < depth:
                     queue.append(child)
-        
+
         return root
-    
+
     def _get_best_direction_with_lookahead(self, game, target_pos):
         """
         Get the best movement direction using lookahead tree evaluation.
-        
+
         Builds a decision tree of depth 2-3 and evaluates all possible
         move sequences. Returns the first move of the best sequence.
-        
+
         This implements the "lookahead" requirement from the spec:
         "Mantiene un horizonte de anticipación pequeño (2-3 acciones por delante)"
-        
+
         Complexity: O(4^d) where d is lookahead depth
-        
+
         Args:
             game: The game instance
             target_pos: Target position tuple
-            
+
         Returns:
             tuple: (dx, dy) best first direction or None
         """
         if not target_pos:
             return None
-        
+
         # Build lookahead tree
         tree_root = self._build_lookahead_tree(
-            game, 
-            (self.x, self.y), 
-            target_pos, 
+            game,
+            (self.x, self.y),
+            target_pos,
             self.lookahead_depth
         )
-        
+
         # Find all leaf nodes (or deepest nodes)
         def get_leaf_nodes(node):
             """Recursively collect all leaf nodes."""
@@ -1633,117 +1654,118 @@ class MediumAI(AbstractAI):
             for child in node.children:
                 leaves.extend(get_leaf_nodes(child))
             return leaves
-        
+
         leaf_nodes = get_leaf_nodes(tree_root)
-        
+
         if not leaf_nodes:
             return None
-        
+
         # Find the leaf with best score
         best_leaf = max(leaf_nodes, key=lambda n: n.score)
-        
+
         # Get the first direction from root that leads to this best leaf
         best_direction = best_leaf.get_root_direction()
-        
+
         if best_direction:
             # Debug info
             print(f"[MediumAI] Lookahead eval: depth={self.lookahead_depth}, "
                   f"explored={len(leaf_nodes)} paths, best_score={best_leaf.score:.1f}")
-        
+
         return best_direction
-    
+
     def _evaluate_move_direction(self, game, target_pos, dx, dy):
         """
         Evaluate a potential move direction using heuristics (fallback).
-        
+
         This is a simple greedy evaluation used as fallback when
         lookahead tree fails.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
             target_pos: Target position tuple
             dx, dy: Direction vector
-            
+
         Returns:
             float: Score for this move (higher is better)
         """
         city = game.get_city()
         new_x = self.x + dx
         new_y = self.y + dy
-        
+
         # Check if valid
         if not city.is_valid_position(new_x, new_y) or city.is_blocked(new_x, new_y):
             return float('-inf')
-        
+
         # Calculate distance to target after this move
         new_distance = self._manhattan_distance((new_x, new_y), target_pos)
-        current_distance = self._manhattan_distance((self.x, self.y), target_pos)
-        
+        current_distance = self._manhattan_distance(
+            (self.x, self.y), target_pos)
+
         # Score based on distance reduction
         distance_improvement = current_distance - new_distance
         score = distance_improvement * 10.0
-        
+
         # Terrain bonus
         if new_y < len(city.tiles) and new_x < len(city.tiles[0]):
             tile_type = city.tiles[new_y][new_x]
             if tile_type == 'C':
                 score += 5.0
-        
+
         return score
-    
+
     def _get_greedy_direction(self, game, target_pos):
         """
         Get best direction using simple greedy evaluation (fallback).
-        
+
         Used when lookahead is not feasible or as a backup.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
             target_pos: Target position tuple
-            
+
         Returns:
             tuple: (dx, dy) direction or None
         """
         if not target_pos:
             return None
-        
+
         directions = [
             (0, -1), (0, 1), (-1, 0), (1, 0)
         ]
-        
+
         move_scores = []
         for dx, dy in directions:
             score = self._evaluate_move_direction(game, target_pos, dx, dy)
             if score > float('-inf'):
                 move_scores.append(((dx, dy), score))
-        
+
         if not move_scores:
             return None
-        
+
         move_scores.sort(key=lambda x: x[1], reverse=True)
         return move_scores[0][0]
-    
+
     def _get_random_valid_direction(self, game):
         """
         Get a random valid movement direction (not blocked).
         Used as fallback when lookahead fails.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
-            
+
         Returns:
             tuple: (dx, dy) direction vector or None
         """
         import random
-        
+
         city = game.get_city()
-        
+
         # All possible directions
         all_directions = [
             (0, -1),   # UP
@@ -1751,54 +1773,54 @@ class MediumAI(AbstractAI):
             (-1, 0),   # LEFT
             (1, 0),    # RIGHT
         ]
-        
+
         # Shuffle to randomize
         random.shuffle(all_directions)
-        
+
         # Try each direction until we find a valid one
         for dx, dy in all_directions:
             new_x = self.x + dx
             new_y = self.y + dy
-            
+
             # Check if position is valid and not blocked
             if city.is_valid_position(new_x, new_y) and not city.is_blocked(new_x, new_y):
                 return (dx, dy)
-        
+
         return None
-    
+
     def _move_towards_target(self, game, target_pos):
         """
         Make the best movement towards target using Expectimax-style evaluation.
-        
+
         Implements "horizonte de anticipación pequeño (2-3 acciones por delante)"
         from the specification using Expectimax (recommended by spec as easier
         than full minimax).
-        
+
         Evaluates moves with: score = α*(expected payout) - β*(distance cost) - γ*(weather penalty)
-        
+
         Anti-loop: Detects repeated positions and temporarily switches to random exploration.
-        
+
         Complexity: O(4^d) where d is lookahead depth (typically 2)
-        
+
         Args:
             game: The game instance
             target_pos: (x, y) tuple of target position
-            
+
         Returns:
             bool: True if movement was made
         """
         import random
-        
+
         if not target_pos:
             return False
-        
+
         city = game.get_city()
         weather = game.get_weather()
         current_pos = (self.x, self.y)
-        
+
         # === LOOP DETECTION ===
         self.recent_positions.append(current_pos)
-        
+
         # Simple but effective: if we're oscillating between 2-3 positions, we're stuck
         if len(self.recent_positions) >= 6:
             unique_recent = set(list(self.recent_positions)[-6:])
@@ -1806,171 +1828,177 @@ class MediumAI(AbstractAI):
                 if not self.stuck_in_loop:
                     self.stuck_in_loop = True
                     self.random_moves_remaining = 5  # Force 5 random moves to escape
-                    print(f"[MediumAI] 🔄 Loop detected! Forcing random exploration...")
-        
+                    print(
+                        f"[MediumAI] 🔄 Loop detected! Forcing random exploration...")
+
         # === ESCAPE MODE (Random exploration) ===
         if self.random_moves_remaining > 0:
             self.random_moves_remaining -= 1
             direction = self._get_random_valid_direction(game)
-            
+
             if self.random_moves_remaining == 0:
                 self.stuck_in_loop = False
                 self.recent_positions.clear()
                 print(f"[MediumAI] ✓ Exited loop, resuming normal operation")
-            
+
             if direction:
                 dx, dy = direction
                 new_x = self.x + dx
                 new_y = self.y + dy
                 return self.move_to(new_x, new_y, city, weather)
             return False
-        
+
         # === NORMAL OPERATION (Expectimax evaluation) ===
-        
+
         # Try lookahead evaluation (90% of the time)
         # 10% randomness prevents getting stuck in deterministic patterns
         direction = None
-        
+
         if random.random() < 0.90:
-            direction = self._get_best_direction_with_lookahead(game, target_pos)
-        
+            direction = self._get_best_direction_with_lookahead(
+                game, target_pos)
+
         # Fallback to greedy if lookahead fails or random roll
         if not direction:
             direction = self._get_greedy_direction(game, target_pos)
-        
+
         # Final fallback to random
         if not direction:
             direction = self._get_random_valid_direction(game)
-        
+
         # Execute movement
         if direction:
             dx, dy = direction
             new_x = self.x + dx
             new_y = self.y + dy
             return self.move_to(new_x, new_y, city, weather)
-        
+
         return False
-    
+
     def _check_pickup_delivery(self, game):
         """
         Check if AI is at pickup or delivery location and handle it.
-        
+
         Complexity: O(1)
-        
+
         Args:
             game: The game instance
-            
+
         Returns:
             str or None: Status message if action was taken
         """
         if not self.active_order:
             return None
-        
+
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
-        
+
         # Check pickup
         if self.active_order.state == "accepted":
             pickup_x, pickup_y = self.active_order.pickup
             distance = max(abs(self.x - pickup_x), abs(self.y - pickup_y))
-            
+
             if distance <= 1:  # Adjacent or at location
                 # Pick up the package
                 if self.weight + self.active_order.weight <= 8.0:
                     self.active_order.state = "carrying"
                     self.active_order.picked_at = elapsed_game_time
                     self.weight += self.active_order.weight
-                    
+
                     # Update target to dropoff
                     self.target_position = self.active_order.dropoff
                     self.target_type = "dropoff"
-                    
-                    new_distance = self._manhattan_distance((self.x, self.y), self.active_order.dropoff)
-                    print(f"[MediumAI] ✓ Picked up {self.active_order.id} - heading to dropoff (distance: {new_distance} tiles)")
+
+                    new_distance = self._manhattan_distance(
+                        (self.x, self.y), self.active_order.dropoff)
+                    print(
+                        f"[MediumAI] ✓ Picked up {self.active_order.id} - heading to dropoff (distance: {new_distance} tiles)")
                     return f"Package {self.active_order.id} picked up"
                 else:
-                    print(f"[MediumAI] ✗ Cannot pick up {self.active_order.id} - overweight")
-        
+                    print(
+                        f"[MediumAI] ✗ Cannot pick up {self.active_order.id} - overweight")
+
         # Check delivery
         elif self.active_order.state == "carrying":
             dropoff_x, dropoff_y = self.active_order.dropoff
             distance = max(abs(self.x - dropoff_x), abs(self.y - dropoff_y))
-            
+
             if distance <= 1:  # Adjacent or at location
                 # Deliver the package
                 deadline = getattr(self.active_order, 'deadline_s', 0)
                 overtime_seconds = max(0, elapsed_game_time - deadline)
-                
+
                 # Update reputation based on delivery time
                 rep_result = self.update_reputation_delivery(
-                    elapsed_game_time, 
+                    elapsed_game_time,
                     deadline,
                     overtime_seconds=overtime_seconds
                 )
-                
+
                 # Calculate payout with multiplier
                 payment_multiplier = self.get_payment_multiplier()
                 payout = self.active_order.payout * payment_multiplier
-                
+
                 # Reduce weight
                 self.weight = max(0, self.weight - self.active_order.weight)
-                
+
                 # Remove from accepted orders
                 if self.active_order in self.accepted_orders:
                     self.accepted_orders.remove(self.active_order)
-                
+
                 delivered_id = self.active_order.id
                 timing_msg = "on time" if overtime_seconds == 0 else f"{overtime_seconds:.0f}s late"
-                print(f"[MediumAI] ✓ Delivered {delivered_id} ({timing_msg}) - Earned ${payout:.0f} - Reputation: {self.reputation:.1f}")
-                
+                print(
+                    f"[MediumAI] ✓ Delivered {delivered_id} ({timing_msg}) - Earned ${payout:.0f} - Reputation: {self.reputation:.1f}")
+
                 # Clear active order and target
                 self.active_order = None
                 self.target_position = None
                 self.target_type = None
-                
+
                 # Select next order if available
                 if self.accepted_orders:
                     self.active_order = self.accepted_orders[0]
                     self.target_position = self.active_order.pickup if self.active_order.state == "accepted" else self.active_order.dropoff
                     self.target_type = "pickup" if self.active_order.state == "accepted" else "dropoff"
                     print(f"[MediumAI] → Next job: {self.active_order.id}")
-                
+
                 return f"Delivered {delivered_id}"
-        
+
         return None
 
     def run_bot_logic(self, game, delta_time):
         """
         Main AI logic loop for Medium difficulty.
-        
+
         This method implements greedy decision-making with heuristic evaluation.
         The AI:
         1. Evaluates all available jobs using scoring function
         2. Selects the best job greedily (highest score)
         3. Uses heuristic pathfinding to move efficiently
         4. Considers weather, distance, and priorities
-        
+
         Time Complexity: O(n log n) where n is number of available jobs
         Space Complexity: O(n) for storing evaluated jobs
-        
+
         Args:
             game: The game instance containing all game state
             delta_time (float): Time elapsed since last update in seconds
         """
         # Update AI state (stamina recovery, animation, etc.)
-        self.update(delta_time)
-        
+        # self.update(delta_time)
+
         # Don't make decisions or move if game is paused
         if game.is_paused():
             return
-        
+
         # Update timers
         self.decision_timer += delta_time
         self.job_selection_timer += delta_time
-        
+
         # Check for pickup/delivery at current position
         self._check_pickup_delivery(game)
-        
+
         # Job selection logic - use greedy evaluation
         should_select_job = False
         if self.active_order is None:
@@ -1978,14 +2006,14 @@ class MediumAI(AbstractAI):
         elif self.job_selection_timer >= self.job_selection_interval:
             should_select_job = True
             self.job_selection_timer = 0.0
-        
+
         if should_select_job:
             # Only accept new jobs if we have capacity
             if len(self.accepted_orders) < self.max_jobs and self.weight < 8.0:
                 job = self._select_best_job(game)
                 if job:
                     self._accept_job(game, job)
-        
+
         # Movement logic - only move if not currently animating (same as human player)
         if not self.is_moving:
             # If we have a target, move towards it intelligently
@@ -1995,7 +2023,7 @@ class MediumAI(AbstractAI):
                     abs(self.x - self.target_position[0]),
                     abs(self.y - self.target_position[1])
                 )
-                
+
                 if distance_to_target > 1:
                     # Move towards target using greedy evaluation
                     self._move_towards_target(game, self.target_position)

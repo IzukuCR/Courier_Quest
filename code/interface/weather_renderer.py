@@ -10,6 +10,13 @@ class WeatherRenderer:
         self.particles = []
         self.fog_surface = None
 
+        # Pre-create overlay surfaces for reuse
+        self.sunny_overlay = None
+        self.rain_overlay = None
+        self.cloudy_overlay = None
+        self.snow_overlay = None
+        self.wind_overlay = None
+
         # Weather condition mapping from game weather to visual effects
         self.weather_mapping = {
             "clear": "sunny",
@@ -26,37 +33,63 @@ class WeatherRenderer:
         self.init_effects()
 
     def init_effects(self):
-        """Initialize weather effect surfaces"""
-        # Fog overlay - make it more visible
+        """Initialize weather effect surfaces - create once and reuse"""
+        # Fog overlay
         self.fog_surface = pygame.Surface(
             (self.screen_width, self.screen_height))
-        self.fog_surface.set_alpha(120)  # Increased from 100
+        self.fog_surface.set_alpha(120)
         self.fog_surface.fill((160, 160, 160))
 
-        # Rain particles - more visible
+        # Pre-create overlay surfaces for each weather type
+        self.sunny_overlay = pygame.Surface(
+            (self.screen_width, self.screen_height))
+        self.sunny_overlay.set_alpha(50)
+        self.sunny_overlay.fill((255, 255, 100))
+
+        self.rain_overlay = pygame.Surface(
+            (self.screen_width, self.screen_height))
+        self.rain_overlay.set_alpha(80)
+        self.rain_overlay.fill((40, 60, 100))
+
+        self.cloudy_overlay = pygame.Surface(
+            (self.screen_width, self.screen_height))
+        self.cloudy_overlay.set_alpha(70)
+        self.cloudy_overlay.fill((100, 100, 120))
+
+        self.snow_overlay = pygame.Surface(
+            (self.screen_width, self.screen_height))
+        self.snow_overlay.set_alpha(40)
+        self.snow_overlay.fill((180, 200, 255))
+
+        self.wind_overlay = pygame.Surface(
+            (self.screen_width, self.screen_height))
+        self.wind_overlay.set_alpha(30)
+        self.wind_overlay.fill((120, 120, 140))
+
+        # Rain particles
         self.rain_particles = []
-        for _ in range(200):  # Increased from 150
+        for _ in range(200):
             self.rain_particles.append({
                 'x': random.randint(0, self.screen_width),
                 'y': random.randint(-self.screen_height, 0),
-                'speed': random.uniform(400, 600),  # Faster
-                'length': random.randint(15, 25)  # Longer
+                'speed': random.uniform(400, 600),
+                'length': random.randint(15, 25)
             })
 
-        # Snow particles - more visible
+        # Snow particles
         self.snow_particles = []
-        for _ in range(150):  # Increased from 100
+        for _ in range(150):
             self.snow_particles.append({
                 'x': random.randint(0, self.screen_width),
                 'y': random.randint(-self.screen_height, 0),
-                'speed': random.uniform(30, 80),  # Slower for realism
-                'size': random.randint(3, 6),  # Bigger
-                'drift': random.uniform(-50, 50)  # More drift
+                'speed': random.uniform(30, 80),
+                'size': random.randint(3, 6),
+                'drift': random.uniform(-50, 50)
             })
 
-        # Wind particles for windy effect
+        # Wind particles - REDUCIR cantidad para mejor performance
         self.wind_particles = []
-        for _ in range(50):
+        for _ in range(30):  # Reducido de 50 a 30
             self.wind_particles.append({
                 'x': random.randint(-100, self.screen_width + 100),
                 'y': random.randint(0, self.screen_height),
@@ -67,7 +100,6 @@ class WeatherRenderer:
 
     def update(self, delta_time, weather_condition):
         """Update weather effects"""
-        # Map game weather condition to visual effect
         visual_condition = self.weather_mapping.get(
             weather_condition, weather_condition)
 
@@ -82,9 +114,8 @@ class WeatherRenderer:
         """Update rain particles"""
         for particle in self.rain_particles:
             particle['y'] += particle['speed'] * delta_time
-            particle['x'] += 100 * delta_time  # More diagonal movement
+            particle['x'] += 100 * delta_time
 
-            # Reset particle when it goes off screen
             if particle['y'] > self.screen_height:
                 particle['y'] = random.randint(-200, -10)
                 particle['x'] = random.randint(-50, self.screen_width + 50)
@@ -96,12 +127,10 @@ class WeatherRenderer:
             particle['x'] += particle['drift'] * \
                 delta_time * math.sin(particle['y'] * 0.01)
 
-            # Reset particle when it goes off screen
             if particle['y'] > self.screen_height:
                 particle['y'] = random.randint(-200, -10)
                 particle['x'] = random.randint(-50, self.screen_width + 50)
 
-            # Wrap around horizontally
             if particle['x'] < -50:
                 particle['x'] = self.screen_width + 50
             elif particle['x'] > self.screen_width + 50:
@@ -112,14 +141,12 @@ class WeatherRenderer:
         for particle in self.wind_particles:
             particle['x'] += particle['speed'] * delta_time
 
-            # Reset particle when it goes off screen
             if particle['x'] > self.screen_width + 100:
                 particle['x'] = -100
                 particle['y'] = random.randint(0, self.screen_height)
 
     def draw(self, screen, weather_condition):
         """Draw weather effects on screen"""
-        # Map game weather condition to visual effect
         visual_condition = self.weather_mapping.get(
             weather_condition, weather_condition)
 
@@ -137,57 +164,32 @@ class WeatherRenderer:
             self._draw_windy_effect(screen)
 
     def _draw_sunny_effect(self, screen):
-        """Draw sunny weather effect"""
-        # Bright golden overlay
-        sunny_overlay = pygame.Surface((self.screen_width, self.screen_height))
-        sunny_overlay.set_alpha(50)  # Increased from 30
-        sunny_overlay.fill((255, 255, 100))  # More yellow
-        screen.blit(sunny_overlay, (0, 0))
-
-        # Add some light rays effect
-        center_x = self.screen_width // 2
-        center_y = self.screen_height // 4
-        for i in range(8):
-            angle = (i * 45) * math.pi / 180
-            end_x = center_x + math.cos(angle) * 300
-            end_y = center_y + math.sin(angle) * 300
-
-            # Create a surface for the ray with alpha
-            ray_surface = pygame.Surface(
-                (self.screen_width, self.screen_height), pygame.SRCALPHA)
-            pygame.draw.line(ray_surface, (255, 255, 150, 30),
-                             (center_x, center_y), (int(end_x), int(end_y)), 3)
-            screen.blit(ray_surface, (0, 0))
+        """Draw sunny weather effect - OPTIMIZADO"""
+        # Usar overlay pre-creado
+        screen.blit(self.sunny_overlay, (0, 0))
 
     def _draw_rain(self, screen):
-        """Draw rain particles"""
-        # Dark overlay for stormy atmosphere first
-        rain_overlay = pygame.Surface((self.screen_width, self.screen_height))
-        rain_overlay.set_alpha(80)  # Increased from 40
-        rain_overlay.fill((40, 60, 100))  # Darker blue
-        screen.blit(rain_overlay, (0, 0))
+        """Draw rain particles - OPTIMIZADO"""
+        # Usar overlay pre-creado
+        screen.blit(self.rain_overlay, (0, 0))
 
-        # Then draw rain particles
+        # Dibujar partículas de lluvia directamente
         for particle in self.rain_particles:
             start_pos = (int(particle['x']), int(particle['y']))
-            end_pos = (int(particle['x'] + 5),  # Wider
+            end_pos = (int(particle['x'] + 5),
                        int(particle['y'] + particle['length']))
-            pygame.draw.line(screen, (150, 200, 255),
-                             start_pos, end_pos, 2)  # Thicker lines
+            pygame.draw.line(screen, (150, 200, 255), start_pos, end_pos, 2)
 
     def _draw_cloudy_effect(self, screen):
-        """Draw cloudy weather effect"""
-        cloudy_overlay = pygame.Surface(
-            (self.screen_width, self.screen_height))
-        cloudy_overlay.set_alpha(70)  # Increased from 50
-        cloudy_overlay.fill((100, 100, 120))  # Darker
-        screen.blit(cloudy_overlay, (0, 0))
+        """Draw cloudy weather effect - OPTIMIZADO"""
+        # Usar overlay pre-creado
+        screen.blit(self.cloudy_overlay, (0, 0))
 
     def _draw_fog(self, screen):
         """Draw fog effect"""
         screen.blit(self.fog_surface, (0, 0))
 
-        # Add moving fog patches
+        # Fog patches simplificados
         for i in range(5):
             x = (pygame.time.get_ticks() // 50 + i *
                  100) % (self.screen_width + 200) - 100
@@ -198,40 +200,36 @@ class WeatherRenderer:
             screen.blit(fog_patch, (x, y))
 
     def _draw_snow(self, screen):
-        """Draw snow particles"""
-        # Cold blue overlay first
-        snow_overlay = pygame.Surface((self.screen_width, self.screen_height))
-        snow_overlay.set_alpha(40)  # Increased from 30
-        snow_overlay.fill((180, 200, 255))  # More blue
-        screen.blit(snow_overlay, (0, 0))
+        """Draw snow particles - OPTIMIZADO"""
+        # Usar overlay pre-creado
+        screen.blit(self.snow_overlay, (0, 0))
 
-        # Then draw snow particles
+        # Dibujar partículas de nieve directamente
         for particle in self.snow_particles:
             pygame.draw.circle(screen, (255, 255, 255),
                                (int(particle['x']), int(particle['y'])),
                                particle['size'])
-            # Add a subtle glow
+            # Glow simplificado
             pygame.draw.circle(screen, (240, 240, 255),
                                (int(particle['x']), int(particle['y'])),
                                particle['size'] + 1, 1)
 
     def _draw_windy_effect(self, screen):
-        """Draw windy weather effect"""
-        # Light gray overlay
-        wind_overlay = pygame.Surface((self.screen_width, self.screen_height))
-        wind_overlay.set_alpha(30)
-        wind_overlay.fill((120, 120, 140))
-        screen.blit(wind_overlay, (0, 0))
+        """Draw windy weather effect - MUY OPTIMIZADO"""
+        # Usar overlay pre-creado
+        screen.blit(self.wind_overlay, (0, 0))
 
-        # Draw wind lines
+        # Dibujar líneas de viento directamente sin crear superficies nuevas
         for particle in self.wind_particles:
             start_pos = (int(particle['x']), int(particle['y']))
             end_pos = (
                 int(particle['x'] + particle['length']), int(particle['y']))
 
-            # Create a surface with alpha for the wind line
-            wind_surface = pygame.Surface(
-                (self.screen_width, self.screen_height), pygame.SRCALPHA)
-            color = (200, 200, 200, particle['alpha'])
-            pygame.draw.line(wind_surface, color, start_pos, end_pos, 2)
-            screen.blit(wind_surface, (0, 0))
+            # Calcular color con alpha basado en el alpha de la partícula
+            # Usar gaaline para líneas suavizadas es más eficiente que crear superficies
+            alpha_factor = particle['alpha'] / 255.0
+            color = (int(200 * alpha_factor), int(200 *
+                     alpha_factor), int(200 * alpha_factor))
+
+            # Usar aalines que es más rápido
+            pygame.draw.aaline(screen, color, start_pos, end_pos)

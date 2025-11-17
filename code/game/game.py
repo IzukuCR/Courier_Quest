@@ -104,6 +104,12 @@ class Game:
         self.bot_thread = None
         self.bot_running = False
 
+        self._ai_inventory: PlayerInventory = PlayerInventory(
+            capacity_weight=8.0)  # AI inventory
+
+        self._ai_jobs: JobsInventory = JobsInventory(
+            weather_start_iso=start_iso)  # AI jobs
+
     def set_player_name(self, name):
         self._player_name = name
 
@@ -449,6 +455,7 @@ class Game:
 
         # Expire orders by time
         self._jobs.mark_expired(self._game_time_s)
+        self._ai_jobs.mark_expired(self._game_time_s)
 
     def get_weather_debug_info(self) -> dict:
         """
@@ -561,6 +568,9 @@ class Game:
             self.ai_bot = HardAI(start_x=12, start_y=12)
         else:
             self.ai_bot = None
+
+        self.ai_bot.jobs = self._ai_jobs
+        self.ai_bot.inventory = self._ai_inventory
 
         print(f"[Game] AI created: {self.ai_bot.get_name()}")
 

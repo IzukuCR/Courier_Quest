@@ -866,30 +866,102 @@ class GameView(BaseView):
         bottom_section_y = jobs_panel_y + jobs_panel_height + \
             15  # Positioned after jobs panel
 
-        # INSTRUCTIONS COLUMN (izquierda)
-        instructions_x = x
-        screen.blit(small_font.render("Instructions", True,
-                    (128, 128, 128)), (instructions_x, bottom_section_y))
+        # AI INFO SECTION - reemplaza instrucciones
+        bottom_section_y = jobs_panel_y + jobs_panel_height + 15
+        ai_info_x = x
 
-        # Updated instructions
-        instructions = [
-            "TAB - Next job",
-            "Q - Previous job",
-            "ENTER - Accept job",
-            "X - Discard active order",
-            "R - Switch active order",
-            "WASD - Move",
-            "Z - Undo",
-            "ESC - Pause"
-        ]
+        if self.ai_view and self.game.ai_bot:
+            screen.blit(small_font.render("AI Bot Status", True,
+                        copper), (ai_info_x, bottom_section_y))
 
-        for i, instruction in enumerate(instructions):
-            instruction_y = bottom_section_y + 20 + i * 15
-            screen.blit(small_font.render(instruction, True,
-                        (100, 100, 100)), (instructions_x, instruction_y))
+            ai_bot = self.game.ai_bot
+            info_y = bottom_section_y + 20
+            # AI Name/Difficulty
+            ai_name = f"Difficulty: {ai_bot.get_name()}"
+            screen.blit(small_font.render(ai_name, True,
+                        primary_text), (ai_info_x, info_y))
+            info_y += 20
 
+            # AI Stamina Bar
+            screen.blit(small_font.render("Stamina:", True,
+                        secondary_text), (ai_info_x, info_y))
+            info_y += 18
+
+            ai_stamina = ai_bot.stamina
+            bar_width = 150
+            bar_height = 10
+            bar_x = ai_info_x
+
+            pygame.draw.rect(
+                screen, self.retro_colors['DARK_NAVY'], (bar_x, info_y, bar_width, bar_height))
+            pygame.draw.rect(
+                screen, self.retro_colors['SILVER'], (bar_x, info_y, bar_width, bar_height), 1)
+
+            if ai_stamina > 30:
+                stamina_color = self.retro_colors['SUCCESS']
+            elif ai_stamina > 0:
+                stamina_color = self.retro_colors['WARNING']
+            else:
+                stamina_color = self.retro_colors['DANGER']
+            stamina_width = int(bar_width * (ai_stamina / 100.0))
+            if stamina_width > 0:
+                pygame.draw.rect(screen, stamina_color,
+                                 (bar_x, info_y, stamina_width, bar_height))
+
+            stamina_text = f"{ai_stamina:.0f}%"
+            screen.blit(pygame.font.Font(None, 14).render(stamina_text, True, stamina_color),
+                        (bar_x + bar_width + 5, info_y))
+            info_y += 20
+
+            # AI Reputation
+            ai_reputation = ai_bot.reputation
+            rep_text = f"Reputation: {ai_reputation:.0f}/100"
+            if ai_reputation >= 70:
+                rep_color = self.retro_colors['SUCCESS']
+            elif ai_reputation >= 40:
+                rep_color = self.retro_colors['WARNING']
+            else:
+                rep_color = self.retro_colors['DANGER']
+            screen.blit(small_font.render(rep_text, True,
+                        rep_color), (ai_info_x, info_y))
+            info_y += 20
+
+            # AI Weight
+            ai_weight = f"Weight: {ai_bot.weight:.1f}/8.0"
+            weight_color = self.retro_colors['DANGER'] if ai_bot.weight >= 7.5 else secondary_text
+            screen.blit(small_font.render(ai_weight, True,
+                        weight_color), (ai_info_x, info_y))
+            info_y += 20
+
+            # AI Current State
+            if ai_bot.is_moving:
+                state = "Moving"
+                state_color = self.retro_colors['INFO']
+            elif ai_bot.is_in_recovery_mode:
+                state = "Recovering"
+                state_color = self.retro_colors['DANGER']
+            else:
+                state = "Idle"
+                state_color = self.retro_colors['DIM_TEXT']
+
+            state_text = f"State: {state}"
+            screen.blit(small_font.render(state_text, True,
+                        state_color), (ai_info_x, info_y))
+            info_y += 20
+
+            # AI Active Orders Count
+            active_orders = len(ai_bot.accepted_orders) if hasattr(
+                ai_bot, 'accepted_orders') else 0
+            orders_text = f"Active Orders: {active_orders}"
+            screen.blit(small_font.render(orders_text, True,
+                        secondary_text), (ai_info_x, info_y))
+
+        else:
+            no_ai_text = "No AI Bot Active"
+            screen.blit(small_font.render(no_ai_text, True, self.retro_colors['DIM_TEXT']),
+                        (ai_info_x, bottom_section_y + 20))
         # MARKERS COLUMN (derecha) - alineado con instructions
-        markers_x = instructions_x + 200  # Spacing between columns
+        markers_x = ai_info_x + 200  # Spacing between columns
         screen.blit(small_font.render("Markers Guide:", True,
                     (128, 128, 128)), (markers_x, bottom_section_y))
 
@@ -897,7 +969,7 @@ class GameView(BaseView):
         guide_marker_size = 16
         guide_font = pygame.font.Font(None, 14)
 
-        # Active Order Markers - ahora usando bottom_section_y
+        # Active Order Markers
         active_guide_y = bottom_section_y + 20
         screen.blit(small_font.render("Active Order:", True,
                     (200, 200, 200)), (markers_x, active_guide_y))
@@ -1022,6 +1094,8 @@ class GameView(BaseView):
                 msg = self.game.on_player_moved(self.player.x, self.player.y)
                 if msg:
                     self.toast, self.toast_timer = msg, 2.0
+        if self.game.ai_bot:
+            self.game.ai_bot.update(delta_time)
 
         # Check for weather changes and show notification
         weather_debug = self.game.get_weather_debug_info()
@@ -1094,11 +1168,12 @@ class GameView(BaseView):
                 self.ai_view = AIView(self.game.ai_bot)
                 print(
                     f"GameView: AI view initialized for {self.game.ai_bot.get_name()}")
-                
+
                 # Start the AI bot thread
                 if not self.game.bot_running:
                     self.game.start_bot()
-                    print(f"GameView: AI bot started - {self.game.ai_bot.get_name()}")
+                    print(
+                        f"GameView: AI bot started - {self.game.ai_bot.get_name()}")
 
         print("Game view shown with responsive layout")
 
