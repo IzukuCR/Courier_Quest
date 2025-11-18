@@ -293,6 +293,11 @@ class GameView(BaseView):
         elif action == "exit":
             # Exit to main menu - redirect to MenuView
             print("EXIT ACTION - Returning to main menu")
+
+            from ..game.game import Game
+            game = Game()
+            game.cleanup_for_menu()
+
             from .menu_view import MenuView
             menu_view = MenuView()
             self.window.show_view(menu_view)

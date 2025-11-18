@@ -429,13 +429,13 @@ class Player:
         mresistencia = resistance_multipliers.get(self.resistance_state, 1.0)
 
         # Surface_weight of current tile
-        surface_weight = 1.0  # Default
+        tile_speed_mult = 1.0  # Default
         if city and current_tile_x is not None and current_tile_y is not None:
-            surface_weight = city.get_surface_weight(
+            tile_speed_mult = city.get_tile_speed_multiplier(
                 current_tile_x, current_tile_y)
 
         # Final speed calculation
-        final_speed = v0 * mclima * mpeso * mrep * mresistencia * surface_weight
+        final_speed = v0 * mclima * mpeso * mrep * mresistencia * tile_speed_mult
 
         return max(0.0, final_speed)  # Dont allow negative speed
 
@@ -470,8 +470,9 @@ class Player:
         mrep = 1.03 if self.reputation >= 90 else 1.0
         mresistencia = {"normal": 1.0, "tired": 0.8,
                         "exhausted": 0.0}.get(self.resistance_state, 1.0)
-        surface_weight = city.get_surface_weight(
-            self.x, self.y) if city else 2.0
+        # CHANGED: Use get_tile_speed_multiplier for player movement
+        tile_speed_mult = city.get_tile_speed_multiplier(
+            self.x, self.y) if city else 1.0
 
         distance = self.calculate_movement_distance()
 
@@ -483,7 +484,7 @@ class Player:
             "weight_multiplier": mpeso,
             "reputation_multiplier": mrep,
             "resistance_multiplier": mresistencia,
-            "surface_multiplier": surface_weight,
+            "surface_multiplier": tile_speed_mult,
             "current_weight": self.weight,
             "reputation": self.reputation,
             "resistance_state": self.resistance_state

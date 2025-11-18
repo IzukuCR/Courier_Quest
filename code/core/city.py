@@ -13,7 +13,7 @@ from pathlib import Path
 class City:
     """
     Represents a city with tiles and navigation.
-    
+
     This class manages the city map which is a 2D grid of tiles.
     It helps check if you can move to certain locations and
     calculates distances between points.
@@ -22,7 +22,7 @@ class City:
     def __init__(self, city_data):
         """
         Create a new city from city data.
-        
+
         Args:
             city_data: Dictionary with city info like name, tiles, and legend
         """
@@ -36,11 +36,11 @@ class City:
 
     def get_tile(self, x, y):
         """Get the tile at the specified coordinates.
-        
+
         Args:
             x (int): X coordinate.
             y (int): Y coordinate.
-            
+
         Returns:
             str or None: The tile type at (x, y) or None if invalid.
         """
@@ -48,41 +48,107 @@ class City:
             return self.tiles[y][x]
         return None
 
-    def get_surface_weight(self, x, y):
-        """Get the surface weight for movement at specified coordinates.
-        
-        Args:
-            x (int): X coordinate.
-            y (int): Y coordinate.
-            
-        Returns:
-            float: Surface weight for movement (default 1.0).
+    def is_valid_position(self, x: int, y: int) -> bool:
         """
-        tile_type = self.get_tile(x, y)
-        if tile_type and tile_type in self.legend:
-            tile_info = self.legend[tile_type]
-            return tile_info.get("surface_weight", 1.0)
-        return 1.0
+        Check if a position is within the city bounds.
 
-    def is_blocked(self, x, y):
-        """Check if the tile at specified coordinates is blocked.
-        
         Args:
-            x (int): X coordinate.
-            y (int): Y coordinate.
-            
+            x: X coordinate
+            y: Y coordinate
+
         Returns:
-            bool: True if blocked, False if walkable.
+            bool: True if position is valid (within bounds)
         """
-        tile_type = self.get_tile(x, y)
+        if not hasattr(self, 'tiles') or not self.tiles:
+            return False
+
+        height = len(self.tiles)
+        width = len(self.tiles[0]) if height > 0 else 0
+
+        return 0 <= x < width and 0 <= y < height
+
+    def is_blocked(self, x: int, y: int) -> bool:
+        """Check if a tile is blocked (building 'B')."""
+        if not self.is_valid_position(x, y):
+            return True  # Out of bounds = blocked
+
+        tile_type = self.tiles[y][x]
+        return tile_type == 'B'  # Buildings are blocked
+
+    def get_surface_weight(self, x: int, y: int) -> float:
+        """
+        Get the movement cost/weight of a surface tile.
+
+        Different surfaces have different movement costs:
+        - 'C' (Road/Concrete): 1.0 (fastest)
+        - 'P' (Park/Grass): 2.0 (slower)
+        - 'B' (Building): inf (blocked)
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            float: Surface weight (lower = faster movement)
+        """
+        if not self.is_valid_position(x, y):
+            return float('inf')
+
+        tile_type = self.tiles[y][x]
+
+        # Surface weights based on tile type
+        weights = {
+            'C': 1.0,   # Road - fastest
+            'P': 2.0,   # Park - slower
+            'B': float('inf')  # Building - blocked
+        }
+
+        return weights.get(tile_type, 2.0)  # Default to park weight
+
+    def get_tile_speed_multiplier(self, x: int, y: int) -> float:
+        """
+        Get the speed multiplier for PLAYER movement on this tile.
+
+        THIS IS FOR PLAYER MOVEMENT ONLY.
+        Uses legend data if available, otherwise defaults.
+
+        Higher multiplier = faster player movement.
+        Lower multiplier = slower player movement.
+
+        Args:
+            x: X coordinate
+            y: Y coordinate
+
+        Returns:
+            float: Speed multiplier (1.0 = normal, <1.0 = slower, >1.0 = faster)
+        """
+        if not self.is_valid_position(x, y):
+            return 0.0  # Can't move out of bounds
+
+        tile_type = self.tiles[y][x]
+
+        # Try to get speed from legend first
         if tile_type and tile_type in self.legend:
             tile_info = self.legend[tile_type]
-            return tile_info.get("blocked", False)
-        return True  # Out of bounds or unknown tile type is blocked
+            # Legend uses "surface_weight" where LOWER = FASTER
+            surface_weight = tile_info.get("surface_weight", 1.0)
+            # Convert to speed multiplier: lower weight = higher speed
+            # Road (0.5 weight) → 2.0 speed
+            # Park (1.0 weight) → 1.0 speed
+            return 1.0 / surface_weight if surface_weight > 0 else 1.0
+
+        # Fallback if no legend data
+        speed_multipliers = {
+            'C': 1.0,   # Road - normal speed
+            'P': 0.5,   # Park - half speed
+            'B': 0.0    # Building - can't move
+        }
+
+        return speed_multipliers.get(tile_type, 1.0)
 
     def get_walkable_tiles(self):
         """Get all walkable tile positions in the city.
-        
+
         Returns:
             list: List of (x, y) tuples representing walkable positions.
         """
@@ -93,21 +159,9 @@ class City:
                     walkable.append((x, y))
         return walkable
 
-    def is_valid_position(self, x, y):
-        """Check if the coordinates are within the city bounds.
-        
-        Args:
-            x (int): X coordinate.
-            y (int): Y coordinate.
-            
-        Returns:
-            bool: True if position is valid, False otherwise.
-        """
-        return 0 <= y < len(self.tiles) and 0 <= x < len(self.tiles[y])
-
     def __str__(self):
         """Return a string representation of the city map.
-        
+
         Returns:
             str: Visual representation of the city with tiles.
         """
@@ -133,10 +187,10 @@ class City:
             result.append(row_str)
 
         return "\n".join(result)
-    
+
     def __repr__(self):
         """Return a detailed representation of the City object.
-        
+
         Returns:
             str: Detailed string representation for debugging.
         """
@@ -147,10 +201,10 @@ class City:
     @classmethod
     def from_data_manager(cls):
         """Create a City instance using data loaded from DataManager.
-        
+
         Returns:
             City: A new City instance with loaded data.
-            
+
         Raises:
             ValueError: If city data could not be loaded.
         """

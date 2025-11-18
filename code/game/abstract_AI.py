@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
+from tracemalloc import start
 import pygame
 import os
 
 from code.game import game
+
+from ..core.city import City
+from code.core import city
 
 
 class AbstractAI(ABC):
@@ -207,13 +211,13 @@ class AbstractAI(ABC):
         mresistencia = resistance_multipliers.get(self.resistance_state, 1.0)
 
         # Surface_weight of current tile
-        surface_weight = 1.0  # Default
+        tile_speed_mult = 1.0  # Default
         if city and current_tile_x is not None and current_tile_y is not None:
-            surface_weight = city.get_surface_weight(
+            tile_speed_mult = city.get_tile_speed_multiplier(
                 current_tile_x, current_tile_y)
 
         # Final speed calculation
-        final_speed = v0 * mclima * mpeso * mrep * mresistencia * surface_weight
+        final_speed = v0 * mclima * mpeso * mrep * mresistencia * tile_speed_mult
 
         return max(0.0, final_speed)  # Dont allow negative speed
 
@@ -226,8 +230,8 @@ class AbstractAI(ABC):
         mrep = 1.03 if self.reputation >= 90 else 1.0
         mresistencia = {"normal": 1.0, "tired": 0.8,
                         "exhausted": 0.0}.get(self.resistance_state, 1.0)
-        surface_weight = city.get_surface_weight(
-            self.x, self.y) if city else 2.0
+        tile_speed_mult = city.get_tile_speed_multiplier(
+            self.x, self.y) if city else 1.0
 
         distance = self.calculate_movement_distance()
 
@@ -239,7 +243,7 @@ class AbstractAI(ABC):
             "weight_multiplier": mpeso,
             "reputation_multiplier": mrep,
             "resistance_multiplier": mresistencia,
-            "surface_multiplier": surface_weight,
+            "surface_multiplier": tile_speed_mult,
             "current_weight": self.weight,
             "reputation": self.reputation,
             "resistance_state": self.resistance_state
@@ -380,8 +384,8 @@ class AbstractAI(ABC):
 
     def update(self, delta_time=1/60):
         # Check if game is paused - don't update stamina recovery if paused
-        from .game import Game
-        game = Game()
+        from code.game.game import Game
+        game = Game._instance
         is_paused = game.is_paused() if hasattr(game, 'is_paused') else False
 
         # update movement and animation
@@ -792,6 +796,51 @@ class EasyAI(AbstractAI):
         self.target_position = None
         self.target_type = None  # "pickup" or "dropoff"
 
+        self.city = None
+        self.weather = None
+
+    def reset_for_new_game(self):
+        """
+        Reset AI state for a new game.
+
+        This should be called when starting a new game to clear any
+        leftover state from previous sessions.
+        """
+        # Clear job state
+        self.accepted_orders = []
+        self.active_order = None
+
+        # Reset timers
+        self.decision_timer = 0.0
+        self.job_selection_timer = 0.0
+
+        # Clear pathfinding state
+        self.current_path = []
+        self.path_recompute_needed = False
+        self.target_position = None
+        self.target_type = None
+
+        # Clear idle mode state
+        self.is_idle_mode = False
+        self.idle_current_circle_index = 0
+        if hasattr(self, '_idle_recovery_notified'):
+            delattr(self, '_idle_recovery_notified')
+
+        # Reset player attributes
+        self.stamina = 100
+        self.reputation = 70
+        self.weight = 0
+        self.resistance_state = "normal"
+        self.is_in_recovery_mode = False
+        self.was_exhausted = False
+
+        # Reset movement state
+        self.is_moving = False
+        self.move_progress = 0.0
+        self.idle_time = 0.0
+
+        print(f"[HardAI] State reset for new game")
+
     def get_name(self):
         """Return AI difficulty name."""
         return "Easy"
@@ -1186,6 +1235,7 @@ class EasyAI(AbstractAI):
 
 
 class MediumAI(AbstractAI):
+
     """
     Medium difficulty AI using greedy decision-making with heuristic evaluation.
 
@@ -1250,6 +1300,35 @@ class MediumAI(AbstractAI):
         self.recent_positions = deque(maxlen=8)  # Track recent positions
         self.stuck_in_loop = False
         self.random_moves_remaining = 0
+
+        self.city = None
+        self.weather = None
+
+    def reset_for_new_game(self):
+        """Reset AI state for a new game."""
+        self.accepted_orders = []
+        self.active_order = None
+        self.target_position = None
+        self.target_type = None
+        self.last_evaluation_results = []
+
+        # Reset anti-loop mechanism
+        self.recent_positions.clear()
+        self.stuck_in_loop = False
+        self.random_moves_remaining = 0
+
+        self.stamina = 100
+        self.reputation = 70
+        self.weight = 0
+        self.resistance_state = "normal"
+        self.is_in_recovery_mode = False
+        self.was_exhausted = False
+
+        self.is_moving = False
+        self.move_progress = 0.0
+        self.idle_time = 0.0
+
+        print(f"[MediumAI] State reset for new game")
 
     def get_name(self):
         """Return AI difficulty name."""
@@ -2030,8 +2109,926 @@ class MediumAI(AbstractAI):
 
 
 class HardAI(AbstractAI):
-    def get_name(self): return "Hard"
+    """
+    Hard difficulty AI using optimal pathfinding (Dijkstra).
+
+    Similar to Medium AI in job selection and decision-making, but uses
+    Dijkstra's algorithm for pathfinding instead of greedy lookahead.
+    """
+
+    def __init__(self, start_x=0, start_y=0):
+        """Initialize Hard AI with Dijkstra pathfinding."""
+        super().__init__(start_x, start_y)
+
+        # Job management (same as Medium)
+        self.accepted_orders = []
+        self.active_order = None
+        self.max_jobs = 3
+
+        # Timers
+        self.decision_timer = 0.0
+        self.decision_interval = 1.0
+        self.job_selection_timer = 0.0
+        self.job_selection_interval = 3.0
+
+        # Heuristic weights (same as Medium)
+        self.alpha = 1.0
+        self.beta = 2.0
+        self.gamma = 5.0
+
+        # Target tracking
+        self.target_position = None
+        self.target_type = None
+
+        # Pathfinding state
+        self.current_path = []
+        self.path_recompute_needed = False
+
+        # Idle behavior (circling in center)
+        self.idle_center_position = None  # Will be set to map center
+        self.idle_circle_points = []  # Points to circle around center
+        self.idle_current_circle_index = 0
+        self.is_idle_mode = False
+        self._idle_in_recovery = False
+        self._idle_recovery_target = None
+
+        self.city = None
+        self.weather = None
+
+    def reset_for_new_game(self):
+        """
+        Reset AI state for a new game.
+
+        This should be called when starting a new game to clear any
+        leftover state from previous sessions.
+        """
+        # Clear job state
+        self.accepted_orders = []
+        self.active_order = None
+
+        # Reset timers
+        self.decision_timer = 0.0
+        self.job_selection_timer = 0.0
+
+        # Clear pathfinding state
+        self.current_path = []
+        self.path_recompute_needed = False
+        self.target_position = None
+        self.target_type = None
+
+        # Clear idle mode state - CRITICAL: Reset recovery flags too
+        self.is_idle_mode = False
+        self.idle_current_circle_index = 0
+        self._idle_in_recovery = False
+        self._idle_recovery_target = None
+
+        # Reset player attributes
+        self.stamina = 100
+        self.reputation = 70
+        self.weight = 0
+        self.resistance_state = "normal"
+        self.is_in_recovery_mode = False
+        self.was_exhausted = False
+
+        # Reset movement state
+        self.is_moving = False
+        self.move_progress = 0.0
+        self.idle_time = 0.0
+
+        print(f"[HardAI] State reset for new game")
+
+    def get_name(self):
+        return "Hard"
+
+    def _manhattan_distance(self, pos1, pos2):
+        """Manhattan distance heuristic."""
+        return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+
+    def _calculate_map_center(self, city):
+        """
+        Calculate the center position of the map.
+
+        Returns:
+            tuple: (x, y) center of the map
+        """
+        if not city or not city.tiles:
+            return (15, 15)  # Default center
+
+        height = len(city.tiles)
+        width = len(city.tiles[0]) if height > 0 else 30
+
+        center_x = width // 2
+        center_y = height // 2
+
+        # Find nearest walkable tile to center
+        for radius in range(0, max(width, height) // 2):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    if abs(dx) == radius or abs(dy) == radius:
+                        test_x = center_x + dx
+                        test_y = center_y + dy
+
+                        if (city.is_valid_position(test_x, test_y) and
+                                not city.is_blocked(test_x, test_y)):
+                            return (test_x, test_y)
+
+        return (center_x, center_y)
+
+    def _generate_circle_points(self, center, radius, city):
+        """
+        Generate points in a circle around the center for idle movement.
+
+        Args:
+            center: (x, y) center position
+            radius: Radius of the circle
+            city: City instance
+
+        Returns:
+            list: List of (x, y) positions forming a circle
+        """
+        import math
+
+        circle_points = []
+        num_points = 8  # 8 points around the circle
+
+        cx, cy = center
+
+        for i in range(num_points):
+            angle = (2 * math.pi * i) / num_points
+
+            # Calculate point on circle
+            x = int(cx + radius * math.cos(angle))
+            y = int(cy + radius * math.sin(angle))
+
+            # Check if valid and walkable
+            if city.is_valid_position(x, y) and not city.is_blocked(x, y):
+                circle_points.append((x, y))
+            else:
+                # Find nearest valid position
+                for r in range(1, radius + 3):
+                    for dx in [-r, 0, r]:
+                        for dy in [-r, 0, r]:
+                            test_x = x + dx
+                            test_y = y + dy
+                            if (city.is_valid_position(test_x, test_y) and
+                                    not city.is_blocked(test_x, test_y)):
+                                circle_points.append((test_x, test_y))
+                                break
+                        else:
+                            continue
+                        break
+                    else:
+                        continue
+                    break
+
+        return circle_points if circle_points else [center]
+
+    def _should_enter_idle_mode(self):
+        """
+        Check if AI should enter idle mode (circling at center).
+
+        Conditions:
+        1. No active order
+        2. No accepted orders
+        3. Stamina > 50%
+
+        Returns:
+            bool: True if should enter idle mode
+        """
+        has_no_orders = (self.active_order is None and
+                         len(self.accepted_orders) == 0)
+        has_enough_stamina = self.stamina > 50.0
+
+        return has_no_orders and has_enough_stamina
+
+    def _initialize_idle_behavior(self, game):
+        """
+        Initialize idle behavior (circling at map center).
+
+        Args:
+            game: The game instance
+        """
+        city = game.get_city()
+
+        # Calculate map center
+        self.idle_center_position = self._calculate_map_center(city)
+
+        # Generate circle points (radius = 3 tiles from center)
+        self.idle_circle_points = self._generate_circle_points(
+            self.idle_center_position,
+            radius=3,
+            city=city
+        )
+
+        self.idle_current_circle_index = 0
+        self.is_idle_mode = True
+        self._idle_in_recovery = False  # New flag to track recovery state
+        self._idle_recovery_target = None  # Track recovery target
+
+        print(
+            f"[HardAI] 💤 Entering idle mode - moving to center at {self.idle_center_position}")
+        print(
+            f"[HardAI]    Generated {len(self.idle_circle_points)} circle points")
+        print(f"[HardAI]    Current stamina: {self.stamina:.1f}%")
+
+    def _update_idle_behavior(self, game):
+        """
+        Update idle behavior (circling movement).
+
+        Stamina rules:
+        - Can circle if stamina > 50%
+        - If stamina drops to ≤50% while circling, must recover to 70% (50% + 20%)
+        - If order appears during recovery, immediately cancel recovery and exit idle mode
+
+        Returns:
+            bool: True if idle behavior is active and handled
+        """
+        if not self.is_idle_mode:
+            return False
+
+        # PRIORITY 1: Check if we should exit idle mode (got a job)
+        # This cancels any recovery in progress
+        if self.active_order is not None or len(self.accepted_orders) > 0:
+            print(f"[HardAI] ✓ Exiting idle mode - got a job!")
+            if self._idle_in_recovery:
+                print(f"[HardAI]    Recovery cancelled due to new order")
+            self.is_idle_mode = False
+            self._idle_in_recovery = False
+            self._idle_recovery_target = None
+            self.target_position = None
+            self.current_path = []
+            return False
+
+        # STAMINA MANAGEMENT
+        current_stamina = self.stamina
+
+        # Check if we need to enter recovery mode
+        if current_stamina <= 50.0 and not self._idle_in_recovery:
+            # Just dropped below 50% - enter recovery mode
+            self._idle_in_recovery = True
+            # Must recover to 70% (50% + 20%)
+            self._idle_recovery_target = 70.0
+            print(
+                f"[HardAI] ⚠ Stamina dropped to {current_stamina:.1f}% - entering recovery mode")
+            print(
+                f"[HardAI]    Must recover to {self._idle_recovery_target:.0f}% before resuming idle movement")
+
+            # Stop movement immediately
+            self.target_position = None
+            self.current_path = []
+
+        # If in recovery mode, check if recovered enough
+        if self._idle_in_recovery:
+            if current_stamina >= self._idle_recovery_target:
+                # Recovered enough - can resume idle movement
+                print(
+                    f"[HardAI] ✓ Stamina recovered to {current_stamina:.1f}% - resuming idle movement")
+                self._idle_in_recovery = False
+                self._idle_recovery_target = None
+            else:
+                # Still recovering - don't move
+                remaining = self._idle_recovery_target - current_stamina
+                if int(current_stamina) % 10 == 0:  # Log every 10% for less spam
+                    print(
+                        f"[HardAI] 🔋 Recovering... {current_stamina:.1f}% / {self._idle_recovery_target:.0f}% (need {remaining:.1f}% more)")
+
+                # Stay in idle mode but don't move
+                self.target_position = None
+                self.current_path = []
+                return True
+
+        # NOT in recovery - can move normally
+        # If no target, set next circle point
+        if self.target_position is None:
+            # First, check if we're at center
+            distance_to_center = self._manhattan_distance(
+                (self.x, self.y),
+                self.idle_center_position
+            )
+
+            if distance_to_center > 2:
+                # Move to center first
+                self.target_position = self.idle_center_position
+                self.current_path = []
+                print(f"[HardAI] 🎯 Moving to center from ({self.x},{self.y})")
+            else:
+                # Already at center, start circling
+                if self.idle_circle_points:
+                    self.target_position = self.idle_circle_points[self.idle_current_circle_index]
+                    self.current_path = []
+                    print(
+                        f"[HardAI] 🔄 Circling to point {self.idle_current_circle_index + 1}/{len(self.idle_circle_points)}")
+
+        # Check if reached current target
+        if self.target_position:
+            distance_to_target = max(
+                abs(self.x - self.target_position[0]),
+                abs(self.y - self.target_position[1])
+            )
+
+            if distance_to_target <= 1:
+                # Reached current point, move to next circle point
+                self.idle_current_circle_index = (
+                    self.idle_current_circle_index + 1) % len(self.idle_circle_points)
+                self.target_position = self.idle_circle_points[self.idle_current_circle_index]
+                self.current_path = []
+                print(
+                    f"[HardAI] ➡️  Next circle point {self.idle_current_circle_index + 1}/{len(self.idle_circle_points)} (stamina: {self.stamina:.1f}%)")
+
+        return True
+
+    def _evaluate_job_score(self, game, order):
+        """Same heuristic evaluation as Medium AI."""
+        game_time = game.get_game_time()
+        if order.state != "available" or order.is_expired(game_time):
+            return float('-inf')
+
+        pickup_distance = self._manhattan_distance(
+            (self.x, self.y), tuple(order.pickup))
+        delivery_distance = self._manhattan_distance(
+            tuple(order.pickup), tuple(order.dropoff))
+        total_distance = pickup_distance + delivery_distance
+
+        base_score = self.alpha * order.payout - self.beta * total_distance
+
+        weather = game.get_weather()
+        weather_penalty = 0.0
+        if weather:
+            condition = weather.get_current_condition()
+            if condition == "storm":
+                weather_penalty = 15.0
+            elif condition == "rain":
+                weather_penalty = 8.0
+            elif condition == "cloudy":
+                weather_penalty = 3.0
+
+        priority_bonus = order.priority * 10.0
+
+        if self.weight + order.weight > 8.0:
+            return float('-inf')
+
+        final_score = base_score - self.gamma * weather_penalty + priority_bonus
+        return final_score
+
+    def _select_best_job(self, game):
+        """Greedy job selection (same as Medium)."""
+        jobs_inventory = self.jobs
+        if not jobs_inventory:
+            return None
+
+        game_time = game.get_game_time()
+        available_jobs = jobs_inventory.selectable(game_time)
+
+        if not available_jobs:
+            return None
+
+        game_time_remaining = game.get_game_time()
+        elapsed_game_time = game._game_time_limit_s - game_time_remaining
+
+        eligible_jobs = []
+        for job in available_jobs:
+            time_since_appearance = elapsed_game_time - job.release_time
+            if time_since_appearance >= 3.0:
+                eligible_jobs.append(job)
+
+        if not eligible_jobs:
+            return None
+
+        job_scores = []
+        for job in eligible_jobs:
+            score = self._evaluate_job_score(game, job)
+            if score > float('-inf'):
+                job_scores.append((job, score))
+
+        if not job_scores:
+            return None
+
+        job_scores.sort(key=lambda x: x[1], reverse=True)
+        best_job, best_score = job_scores[0]
+
+        print(
+            f"[HardAI] Evaluated {len(job_scores)} jobs - Best: {best_job.id} (score: {best_score:.1f})")
+        return best_job
+
+    def _find_nearest_accessible_position(self, game, target_pos):
+        """
+        Find the nearest accessible position adjacent to a target.
+
+        If target is blocked (building), finds the closest walkable tile
+        adjacent to it.
+
+        Args:
+            game: The game instance
+            target_pos: (x, y) tuple of target position
+
+        Returns:
+            tuple: (x, y) of nearest accessible position, or target if already accessible
+        """
+        city = game.get_city()
+        target_x, target_y = target_pos
+
+        # If target is accessible, use it directly
+        if not city.is_blocked(target_x, target_y):
+            return target_pos
+
+        # Target is blocked - find nearest adjacent walkable tile
+        adjacent_positions = [
+            (target_x, target_y - 1),  # North
+            (target_x, target_y + 1),  # South
+            (target_x - 1, target_y),  # West
+            (target_x + 1, target_y),  # East
+        ]
+
+        valid_positions = []
+        for pos in adjacent_positions:
+            x, y = pos
+            if city.is_valid_position(x, y) and not city.is_blocked(x, y):
+                valid_positions.append(pos)
+
+        if not valid_positions:
+            print(
+                f"[HardAI] WARNING: No accessible positions adjacent to {target_pos}")
+            # Fallback to target (will fail but at least won't crash)
+            return target_pos
+
+        # Return the first valid adjacent position
+        # Could be improved to return closest to AI's current position
+        return valid_positions[0]
+
+    def _accept_job(self, game, order):
+        """Accept job (same as Medium)."""
+        if not order:
+            return False
+
+        game_time_remaining = game.get_game_time()
+        elapsed_game_time = game._game_time_limit_s - game_time_remaining
+
+        order.state = "accepted"
+        order.accepted_at = elapsed_game_time
+
+        if order.priority == 0:
+            base_time = 120
+        elif order.priority == 1:
+            base_time = 90
+        else:
+            base_time = 60
+
+        order.deadline_s = elapsed_game_time + base_time
+
+        if order not in self.accepted_orders:
+            self.accepted_orders.append(order)
+
+        if self.active_order is None:
+            self.active_order = order
+            # FIX: Find accessible position near pickup
+            accessible_pickup = self._find_nearest_accessible_position(
+                game, tuple(order.pickup))
+            self.target_position = accessible_pickup
+            self.target_type = "pickup"
+            self.current_path = []
+            distance = self._manhattan_distance(
+                (self.x, self.y), self.target_position)
+            print(
+                f"[HardAI] ✓ Accepted job {order.id} (Priority {order.priority}, ${order.payout}) - distance: {distance} tiles")
+            if accessible_pickup != tuple(order.pickup):
+                print(
+                    f"[HardAI]   Note: Pickup at {order.pickup} is blocked, targeting adjacent {accessible_pickup}")
+        else:
+            print(
+                f"[HardAI] Accepted additional job {order.id} - will handle after current")
+
+        return True
+
+    def _get_tile_cost(self, game, x, y):
+        """Calculate movement cost for a tile."""
+        city = self.city if self.city else game.get_city()
+        weather = self.weather if self.weather else game.get_weather()
+
+        base_cost = city.get_surface_weight(x, y)
+        base_cost = max(1.0, base_cost)
+
+        weather_mult = 1.0
+        if weather:
+            weather_mult = max(0.3, weather.get_speed_multiplier())
+
+        if self.resistance_state == "normal":
+            resistance_mult = 1.0
+        elif self.resistance_state == "tired":
+            resistance_mult = 1.2
+        else:
+            resistance_mult = 1.5
+
+        final_cost = (base_cost * resistance_mult) / weather_mult
+        return final_cost
+
+    def _move_along_path(self, game):
+        """Execute next step along computed path."""
+        if not self.current_path or self.is_moving:
+            return False
+
+        # CRITICAL FIX: Get the FIRST step in the path (next adjacent cell)
+        # The path should be a sequence of adjacent cells
+        next_pos = self.current_path[0]
+        next_x, next_y = next_pos
+
+        # Verify this is actually an adjacent cell
+        distance = max(abs(next_x - self.x), abs(next_y - self.y))
+        if distance > 1:
+            print(
+                f"[HardAI] ERROR: Path contains non-adjacent move ({self.x},{self.y}) -> ({next_x},{next_y}), distance={distance}")
+            print(f"[HardAI] Path preview: {self.current_path[:5]}")
+            self.path_recompute_needed = True
+            self.current_path = []
+            return False
+
+        city = game.get_city()
+        weather = game.get_weather()
+
+        # Try to move to the next position
+        moved = self.move_to(next_x, next_y, city, weather)
+
+        if moved:
+            # Successfully moved - remove this step from path
+            self.current_path.pop(0)
+            print(
+                f"[HardAI] → Moved to ({next_x},{next_y}), {len(self.current_path)} steps remaining")
+            return True
+        else:
+            # Movement failed (blocked) - recompute path
+            print(
+                f"[HardAI] ⚠ Move to ({next_x},{next_y}) blocked, recomputing path...")
+            self.path_recompute_needed = True
+            self.current_path = []
+            return False
+
+    def _dijkstra_pathfind(self, game, start, goal):
+        """Dijkstra's algorithm for optimal weighted pathfinding."""
+        if start == goal:
+            return []
+
+        city = self.city if self.city else game.get_city()
+        weather = self.weather if self.weather else game.get_weather()
+
+        if not city:
+            print("[HardAI] ERROR: No city reference available")
+            return None
+
+        if not weather:
+            print("[HardAI] ERROR: No weather reference available")
+            return None
+
+        import heapq
+
+        frontier = []
+        heapq.heappush(frontier, (0.0, start))
+
+        came_from = {}
+        cost_so_far = {start: 0.0}
+        visited = set()
+
+        while frontier:
+            current_cost, current_pos = heapq.heappop(frontier)
+
+            if current_pos in visited:
+                continue
+            visited.add(current_pos)
+
+            if current_pos == goal:
+                # CRITICAL FIX: Reconstruct path properly
+                path = []
+                pos = current_pos
+                while pos != start:  # CHANGED: Use != instead of 'in came_from'
+                    path.append(pos)
+                    pos = came_from[pos]
+                path.reverse()  # Now path goes from start to goal
+
+                # VERIFY path is valid (all steps are adjacent)
+                print(f"[HardAI] ✓ Path found: {len(path)} steps")
+                print(f"[HardAI] Path preview: {path[:5]}...")
+
+                # Debug: Check if path steps are adjacent
+                if len(path) > 0:
+                    prev = start
+                    for i, step in enumerate(path[:3]):  # Check first 3 steps
+                        dist = max(abs(step[0] - prev[0]),
+                                   abs(step[1] - prev[1]))
+                        print(
+                            f"[HardAI]   Step {i}: {prev} -> {step} (distance: {dist})")
+                        if dist > 1:
+                            print(
+                                f"[HardAI]   WARNING: Non-adjacent step detected!")
+                        prev = step
+
+                return path
+
+            x, y = current_pos
+            neighbors = [
+                (x, y - 1),  # North
+                (x, y + 1),  # South
+                (x - 1, y),  # West
+                (x + 1, y)   # East
+            ]
+
+            for nx, ny in neighbors:
+                if not city.is_valid_position(nx, ny) or city.is_blocked(nx, ny):
+                    continue
+
+                neighbor_pos = (nx, ny)
+                move_cost = self._get_tile_cost(game, nx, ny)
+                new_cost = cost_so_far[current_pos] + move_cost
+
+                if new_cost < cost_so_far.get(neighbor_pos, float('inf')):
+                    cost_so_far[neighbor_pos] = new_cost
+                    came_from[neighbor_pos] = current_pos
+                    heapq.heappush(frontier, (new_cost, neighbor_pos))
+
+        print(f"[HardAI] ✗ No path found to target!")
+        return None
+
+    def _ensure_path_to_target(self, game):
+        """Ensure we have a valid path to current target."""
+        if not self.target_position:
+            self.current_path = []
+            return
+
+        start = (self.x, self.y)
+
+        if not self.current_path or self.path_recompute_needed:
+            print(
+                f"[HardAI] Computing optimal path from {start} to {self.target_position}...")
+            path = self._dijkstra_pathfind(game, start, self.target_position)
+
+            if path is not None:
+                self.current_path = path
+                self.path_recompute_needed = False
+                print(f"[HardAI] ✓ Path computed: {len(path)} steps")
+            else:
+                self.current_path = []
+                print(f"[HardAI] ✗ No path found to target!")
+
+    def _move_single_cell(self, target_x, target_y, city, weather):
+        """
+        Move exactly one cell towards target position.
+
+        Args:
+            target_x: Target x coordinate (must be adjacent)
+            target_y: Target y coordinate (must be adjacent)
+            city: City instance
+            weather: Weather instance
+
+        Returns:
+            bool: True if movement started successfully
+        """
+        # Verify target is adjacent
+        distance = max(abs(target_x - self.x), abs(target_y - self.y))
+        if distance != 1:
+            print(
+                f"[HardAI] ERROR: _move_single_cell called with non-adjacent target!")
+            return False
+
+        # Check if not already moving
+        if self.is_moving:
+            return False
+
+        # Check if in recovery mode
+        if self.is_in_recovery_mode:
+            if self.stamina < self.recovery_threshold:
+                return False
+            else:
+                self.is_in_recovery_mode = False
+                self.was_exhausted = False
+
+        # Calculate speed for this single cell
+        self.current_speed = self.calculate_speed(
+            weather, city, self.x, self.y)
+
+        if self.current_speed <= 0:
+            return False
+
+        # Check if valid
+        if not city.is_valid_position(target_x, target_y) or city.is_blocked(target_x, target_y):
+            return False
+
+        # Set movement target (single cell only)
+        self.target_x = target_x
+        self.target_y = target_y
+        self.is_moving = True
+        self.move_progress = 0.0
+        self.idle_time = 0.0
+
+        # Update animation speed
+        self.update_move_speed_for_distance()
+
+        # CRITICAL FIX: Calculate stamina loss based on "virtual" movement distance
+        # The AI moves 1 cell physically, but stamina should reflect the speed-based distance
+        # This matches how the player's stamina works:
+        # - Fast player (speed 3.0+) loses more stamina per cell (as if moving 3 cells)
+        # - Slow AI should lose less stamina per cell
+
+        # Get the "virtual" distance based on current speed
+        virtual_distance = self.calculate_movement_distance()
+
+        # Update stamina using the virtual distance
+        # This ensures fast AI loses more stamina (realistic - moving fast is tiring)
+        self.update_stamina_after_move(virtual_distance, weather, city)
+
+        # Update direction for animation
+        if target_x > self.x:
+            self.current_direction = "RIGHT"
+        elif target_x < self.x:
+            self.current_direction = "LEFT"
+        elif target_y > self.y:
+            self.current_direction = "DOWN"
+        elif target_y < self.y:
+            self.current_direction = "UP"
+
+        return True
+
+    def _move_along_path(self, game):
+        """Execute next step along computed path - SINGLE CELL ONLY."""
+        if not self.current_path or self.is_moving:
+            return False
+
+        # Get next position
+        next_pos = self.current_path[0]
+        next_x, next_y = next_pos
+
+        # Verify adjacent
+        distance = max(abs(next_x - self.x), abs(next_y - self.y))
+        if distance != 1:
+            print(f"[HardAI] ERROR: Invalid path step, recomputing...")
+            self.path_recompute_needed = True
+            self.current_path = []
+            return False
+
+        city = game.get_city()
+        weather = game.get_weather()
+
+        # Use single-cell movement method
+        moved = self._move_single_cell(next_x, next_y, city, weather)
+
+        if moved:
+            self.current_path.pop(0)
+            remaining = len(self.current_path)
+            if remaining % 5 == 0 or remaining < 3:
+                print(
+                    f"[HardAI] → At ({next_x},{next_y}), {remaining} steps remaining")
+            return True
+        else:
+            print(
+                f"[HardAI] ⚠ Cannot move to ({next_x},{next_y}), recomputing...")
+            self.path_recompute_needed = True
+            self.current_path = []
+            return False
+
+    def _check_pickup_delivery(self, game):
+        """Check and handle pickup/delivery at current position."""
+        if not self.active_order:
+            return None
+
+        game_time_remaining = game.get_game_time()
+        elapsed_game_time = game._game_time_limit_s - game_time_remaining
+
+        if self.active_order.state == "accepted":
+            pickup_x, pickup_y = self.active_order.pickup
+            # FIX: Calculate actual distance (Manhattan distance)
+            distance = abs(self.x - pickup_x) + abs(self.y - pickup_y)
+
+            # CHANGED: Allow pickup when distance is 0 (at location) OR 1 (adjacent)
+            if distance <= 1:
+                if self.weight + self.active_order.weight <= 8.0:
+                    self.active_order.state = "carrying"
+                    self.active_order.picked_at = elapsed_game_time
+                    self.weight += self.active_order.weight
+
+                    # FIX: Find accessible position near dropoff
+                    accessible_dropoff = self._find_nearest_accessible_position(
+                        game, tuple(self.active_order.dropoff))
+                    self.target_position = accessible_dropoff
+                    self.target_type = "dropoff"
+                    self.current_path = []  # Clear path to force recompute
+
+                    new_distance = self._manhattan_distance(
+                        (self.x, self.y), self.target_position)
+                    print(
+                        f"[HardAI] ✓ Picked up {self.active_order.id} - heading to dropoff (distance: {new_distance} tiles)")
+                    if accessible_dropoff != tuple(self.active_order.dropoff):
+                        print(
+                            f"[HardAI]   Note: Dropoff at {self.active_order.dropoff} is blocked, targeting adjacent {accessible_dropoff}")
+                    return f"Package {self.active_order.id} picked up"
+                else:
+                    print(
+                        f"[HardAI] ✗ Cannot pick up {self.active_order.id} - overweight")
+
+        elif self.active_order.state == "carrying":
+            dropoff_x, dropoff_y = self.active_order.dropoff
+            # FIX: Calculate actual distance (Manhattan distance)
+            distance = abs(self.x - dropoff_x) + abs(self.y - dropoff_y)
+
+            # CHANGED: Allow delivery when distance is 0 (at location) OR 1 (adjacent)
+            if distance <= 1:
+                deadline = getattr(self.active_order, 'deadline_s', 0)
+                overtime_seconds = max(0, elapsed_game_time - deadline)
+
+                rep_result = self.update_reputation_delivery(
+                    elapsed_game_time, deadline, overtime_seconds=overtime_seconds
+                )
+
+                payment_multiplier = self.get_payment_multiplier()
+                payout = self.active_order.payout * payment_multiplier
+
+                self.weight = max(0, self.weight - self.active_order.weight)
+
+                if self.active_order in self.accepted_orders:
+                    self.accepted_orders.remove(self.active_order)
+
+                delivered_id = self.active_order.id
+                timing_msg = "on time" if overtime_seconds == 0 else f"{overtime_seconds:.0f}s late"
+                print(
+                    f"[HardAI] ✓ Delivered {delivered_id} ({timing_msg}) - Earned ${payout:.0f} - Reputation: {self.reputation:.1f}")
+
+                self.active_order = None
+                self.target_position = None
+                self.current_path = []
+
+                if self.accepted_orders:
+                    self.active_order = self.accepted_orders[0]
+                    if self.active_order.state == "accepted":
+                        accessible_pickup = self._find_nearest_accessible_position(
+                            game, tuple(self.active_order.pickup))
+                        self.target_position = accessible_pickup
+                        self.target_type = "pickup"
+                    else:
+                        accessible_dropoff = self._find_nearest_accessible_position(
+                            game, tuple(self.active_order.dropoff))
+                        self.target_position = accessible_dropoff
+                        self.target_type = "dropoff"
+                    self.current_path = []  # Clear path
+                    print(f"[HardAI] → Next job: {self.active_order.id}")
+
+                return f"Delivered {delivered_id}"
+
+        return None
 
     def run_bot_logic(self, game, delta_time):
-       # Simple AI logic for Hard difficulty
-        pass
+        """Main AI loop for Hard difficulty."""
+        if game.is_paused():
+            return
+
+        jobs_inventory = self.jobs
+        if not jobs_inventory:
+            return
+
+        self.decision_timer += delta_time
+        self.job_selection_timer += delta_time
+
+        # Check for pickup/delivery
+        self._check_pickup_delivery(game)
+
+        # Job selection
+        should_select_job = False
+        if self.active_order is None:
+            should_select_job = True
+        elif self.job_selection_timer >= self.job_selection_interval:
+            should_select_job = True
+            self.job_selection_timer = 0.0
+
+        if should_select_job:
+            if len(self.accepted_orders) < self.max_jobs and self.weight < 8.0:
+                job = self._select_best_job(game)
+                if job:
+                    self._accept_job(game, job)
+                    # Exit idle mode if was idle
+                    if self.is_idle_mode:
+                        print(f"[HardAI] ✓ Exiting idle mode - accepted job")
+                        self.is_idle_mode = False
+
+        # IDLE BEHAVIOR: Check if should enter idle mode
+        if self._should_enter_idle_mode() and not self.is_idle_mode:
+            self._initialize_idle_behavior(game)
+
+        # Update idle behavior (returns True if handled)
+        if self._update_idle_behavior(game):
+            # Idle behavior is active, still need to execute movement
+            pass  # Continue to movement logic below
+
+        # Movement logic - only move if not currently animating
+        if not self.is_moving:
+            if self.target_position:
+                distance_to_target = max(
+                    abs(self.x - self.target_position[0]),
+                    abs(self.y - self.target_position[1])
+                )
+
+                if distance_to_target >= 1:
+                    # Ensure we have a path
+                    if not self.current_path:
+                        self._ensure_path_to_target(game)
+
+                    # Move along path
+                    if self.current_path:
+                        self._move_along_path(game)
+                else:
+                    # At target (distance 0) - no need to move
+                    # If in idle mode, this will be handled next frame
+                    pass

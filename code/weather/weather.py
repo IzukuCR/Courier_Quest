@@ -12,7 +12,7 @@ import datetime
 class Weather:
     """
     Manages weather conditions and their effects on gameplay.
-    
+
     This class handles changing weather conditions that affect
     the player's movement speed. Weather changes based on
     probability patterns from weather data.
@@ -33,7 +33,7 @@ class Weather:
     def __init__(self):
         """
         Create a new weather system.
-        
+
         Sets up the weather with default clear conditions
         and prepares to load weather patterns from data files.
         """
@@ -51,6 +51,32 @@ class Weather:
         self.bursts = []
         self.meta = {}
 
+    @staticmethod
+    def from_data_manager():
+        """
+        Create and initialize a Weather instance from DataManager.
+
+        This is a factory method that creates a Weather object and
+        automatically loads all weather data from the DataManager.
+
+        Returns:
+            Weather: Fully initialized weather instance
+
+        Raises:
+            Exception: If weather data fails to load
+        """
+        weather = Weather()
+
+        # Load weather data using the existing load_weather method
+        success = weather.load_weather()
+
+        if not success:
+            print("Weather: Failed to load weather data")
+            # Don't raise exception, allow game to continue with default weather
+            # raise Exception("Failed to initialize weather from DataManager")
+
+        return weather
+
     def get_city(self):
         return self.city
 
@@ -63,7 +89,7 @@ class Weather:
     def get_speed_multiplier(self):
         """
         Get how fast the player can move in current weather.
-        
+
         Returns a number between 0 and 1. For example:
         - 1.0 = normal speed (clear weather)
         - 0.75 = 75% speed (storm)

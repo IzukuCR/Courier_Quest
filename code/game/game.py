@@ -33,43 +33,48 @@ class Game:
         self._dm = DataManager()
         try:
             self._city: City = City.from_data_manager()
+            # VERIFY city loaded correctly
+            if not self._city or not hasattr(self._city, 'tiles') or not self._city.tiles:
+                print("Game: ERROR - City failed to load properly, attempting reload...")
+                self._city = City.from_data_manager()
+
+            # Final check
+            if self._city and hasattr(self._city, 'tiles') and len(self._city.tiles) > 0:
+                print(
+                    f"Game: City loaded successfully - {self._city.name} ({len(self._city.tiles)}x{len(self._city.tiles[0])} tiles)")
+            else:
+                print("Game: CRITICAL ERROR - City has no tile data!")
+                raise Exception("City failed to load tile data")
+
         except Exception as e:
             print(f"Game Class: Error loading city: {e}")
-            # Build an empty compatible City
-            self._city = City({
-                "name": "Unknown",
-                "version": "0.0",
-                "width": 0,
-                "height": 0,
-                "tiles": [],
-                "legend": {},
-                "goal": 0
-            })
+            # DON'T create empty city - re-raise the error
+            raise Exception(
+                f"Failed to initialize game - city load error: {e}")
 
+        # --------- Initialize Weather BEFORE using it ---------
         try:
-            self._weather: Weather = Weather()
-            self._weather.load_weather()
+            self._weather: Weather = Weather.from_data_manager()
+            print(f"Game: Weather initialized successfully")
         except Exception as e:
-            print(f"Game Class: Error loading weather: {e}")
-            self._weather = Weather()
+            print(f"Game: Error loading weather: {e}")
+            raise Exception(
+                f"Failed to initialize game - weather load error: {e}")
 
         # --------- Game state / clock ---------
         self._is_playing: bool = False
         self._paused: bool = False
-        # 10 minutes in seconds (10 * 60)
         self._game_time_limit_s: float = 600.0
-        # Start with full time (countdown)
         self._game_time_s: float = 600.0
-        self._weather_timer: float = 0.0          # accumulator for bursts
-        self._burst_period_s: float = 55.0        # ~45–60s
-        self._transition_s: float = 3.0           # reserved for smooth transitions
+        self._weather_timer: float = 0.0
+        self._burst_period_s: float = 55.0
+        self._transition_s: float = 3.0
 
         # Weather change tracking
-        self._last_weather_change_time: float = 0.0  # Track when last change occurred
-        self._next_scheduled_change: float = 0.0     # When next change should happen
+        self._last_weather_change_time: float = 0.0
+        self._next_scheduled_change: float = 0.0
 
-        # --------- Inventories ---------
-        # Align deadlines with plan's start_time (bursts) if exists
+        # --------- Inventories (NOW weather is available) ---------
         start_iso = getattr(self._weather, "start_time", None)
         self._jobs: JobsInventory = JobsInventory(weather_start_iso=start_iso)
         self._player_inv: PlayerInventory = PlayerInventory(
@@ -78,10 +83,10 @@ class Game:
         # --------- Player / score ---------
         self._player_name: str = "Player1"
         self._scoreboard: Scoreboard = Scoreboard(self._player_name)
-        self._player: Optional[Player] = None  # Initialize as None
+        self._player: Optional[Player] = None
         self._goal: int = getattr(self._city, "goal", 0) if self._city else 0
 
-        # Local pygame clock (in case you need it for debugging)
+        # Local pygame clock
         self._clock = pygame.time.Clock()
 
         # Mark as initialized
@@ -105,10 +110,9 @@ class Game:
         self.bot_running = False
 
         self._ai_inventory: PlayerInventory = PlayerInventory(
-            capacity_weight=8.0)  # AI inventory
-
+            capacity_weight=8.0)
         self._ai_jobs: JobsInventory = JobsInventory(
-            weather_start_iso=start_iso)  # AI jobs
+            weather_start_iso=start_iso)
 
     def set_player_name(self, name):
         self._player_name = name
@@ -569,9 +573,6 @@ class Game:
         else:
             self.ai_bot = None
 
-        self.ai_bot.jobs = self._ai_jobs
-        self.ai_bot.inventory = self._ai_inventory
-
         print(f"[Game] AI created: {self.ai_bot.get_name()}")
 
     def start_bot(self):
@@ -580,12 +581,40 @@ class Game:
             print("[Game] No AI assigned. Initialization aborted.")
             return
 
-        if not self.bot_running:
-            print(f"[Game] Starting AI: {self.ai_bot.get_name()}")
-            self.bot_running = True
-            self.bot_thread = threading.Thread(
-                target=self._run_bot_loop, daemon=True)
-            self.bot_thread.start()
+        # CRITICAL: If bot is already running, stop it first
+        if self.bot_running:
+            print("[Game] Bot already running - stopping previous instance...")
+            self.stop_bot()
+
+        if not self._city or not hasattr(self._city, 'tiles') or not self._city.tiles:
+            print(f"[Game] ERROR: Cannot start AI - city data is invalid!")
+            return
+
+        # Assign references FIRST
+        self.ai_bot.city = self._city
+        self.ai_bot.weather = self._weather
+        self.ai_bot.jobs = self._ai_jobs
+        self.ai_bot.inventory = self._ai_inventory
+
+        # THEN reset AI state
+        if hasattr(self.ai_bot, 'reset_for_new_game'):
+            self.ai_bot.reset_for_new_game()
+
+        # Verification
+        print(f"[Game] Starting AI: {self.ai_bot.get_name()}")
+        print(f"  Position: ({self.ai_bot.x}, {self.ai_bot.y})")
+        print(f"  City: {self.ai_bot.city.name}")
+        print(
+            f"  Tiles: {len(self.ai_bot.city.tiles)}x{len(self.ai_bot.city.tiles[0])}")
+        print(f"  Weather: {self.ai_bot.weather is not None}")
+        print(f"  Jobs: {len(self.ai_bot.jobs.all())} orders")
+
+        # Start the thread
+        self.bot_running = True
+        self.bot_thread = threading.Thread(
+            target=self._run_bot_loop, daemon=True)
+        self.bot_thread.start()
+        print(f"[Game] AI thread started successfully")
 
     def _run_bot_loop(self):
         """Bucle de ejecución del bot (hilo separado)."""
@@ -604,3 +633,104 @@ class Game:
             if self.ai_bot.is_game_over_by_reputation():
                 print("[AI] Game over por reputación baja.")
                 self.bot_running = False
+
+    def stop_bot(self):
+        """Stop the AI bot thread safely."""
+        if self.bot_running:
+            print("[Game] Stopping AI bot...")
+            self.bot_running = False
+
+            # Wait for thread to finish (with timeout)
+            if self.bot_thread and self.bot_thread.is_alive():
+                self.bot_thread.join(timeout=2.0)
+
+                # Force terminate if still alive (shouldn't happen, but safety)
+                if self.bot_thread.is_alive():
+                    print("[Game] WARNING: Bot thread did not terminate cleanly")
+
+            self.bot_thread = None
+            print("[Game] AI bot stopped")
+
+    def cleanup_for_menu(self):
+        """Clean up game state when returning to menu."""
+        print("[Game] Cleaning up for menu return...")
+
+        # CRITICAL: Stop AI bot FIRST before clearing references
+        self.stop_bot()
+
+        # Set game as not playing
+        self._is_playing = False
+        self._paused = False
+
+        # Clear player reference
+        self._player = None
+
+        # IMPORTANT: Don't set ai_bot to None - keep the difficulty selection
+        # but ensure the bot is fully stopped
+        if self.ai_bot:
+            # Clear AI state manually
+            self.ai_bot.is_moving = False
+            self.ai_bot.move_progress = 0.0
+            print(f"[Game] AI bot state cleared: {self.ai_bot.get_name()}")
+
+        print("[Game] Cleanup complete")
+
+    def start_new_game(self):
+        print("Game: Starting new game...")
+        self._is_playing = True
+        self._paused = False
+
+        # Reset to full time (10 minutes)
+        self._game_time_s = self._game_time_limit_s
+        self._weather_timer = 0.0
+        self._last_weather_change_time = 0.0
+        self._next_scheduled_change = self._burst_period_s
+
+        # Reset scoreboard
+        self._scoreboard = Scoreboard(self._player_name)
+
+        # Reset jobs inventory
+        self._jobs.reset_for_new_game()
+
+        # CRITICAL: Reset AI jobs inventory too
+        self._ai_jobs.reset_for_new_game()
+
+        # Reset player inventory
+        self._player_inv.reset_for_new_game()
+
+        # CRITICAL: Reset AI inventory too
+        self._ai_inventory.reset_for_new_game()
+
+        # Create new player at a valid starting position
+        start_x, start_y = 0, 0
+        if self._city and getattr(self._city, "tiles", None):
+            found = False
+            for y in range(len(self._city.tiles)):
+                for x in range(len(self._city.tiles[0])):
+                    try:
+                        if not self._city.is_blocked(x, y):
+                            start_x, start_y = x, y
+                            found = True
+                            break
+                    except Exception:
+                        continue
+                if found:
+                    break
+
+        # Create new player instance
+        self._player = Player(start_x, start_y)
+        print(f"Game: Setting initial player reputation to 70")
+        self._player.reputation = 70.0
+        self._player.reset_daily_reputation_tracking()
+
+        print(
+            f"Game: New game started - Player at ({start_x}, {start_y}), Reputation: {self._player.reputation}")
+
+        # CRITICAL: If AI exists, reset its position too
+        if self.ai_bot:
+            # Reset AI to its starting position (12, 12 by default)
+            self.ai_bot.x = 12
+            self.ai_bot.y = 12
+            self.ai_bot.target_x = 12
+            self.ai_bot.target_y = 12
+            print(f"[Game] AI position reset to (12, 12)")
