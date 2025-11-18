@@ -6,9 +6,6 @@ Un videojuego de entrega desarrollado en Python usando Pygame donde el jugador c
 - Isaac Rodriguez Aguero
 - Josué Ezequiel Ulloa Brenes
 
-# Bitacora
-https://docs.google.com/document/d/1YgJ_xAt9MFufSFnJceTfLrB9dwXMMx64OqryTdlHwSA/edit?usp=sharing
-
 # Descripción
 
 Este proyecto implementa un videojuego donde el jugador es un repartidor que debe completar pedidos en una ciudad. El objetivo es alcanzar una meta de ingresos antes de que termine el tiempo, mientras se gestionan varios factores como resistencia del jugador, cambios climáticos, peso del inventario y sistema de reputación.

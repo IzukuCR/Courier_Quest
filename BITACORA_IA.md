@@ -243,3 +243,376 @@ def make_decision(self, game_state):
     return {'action_type': 'idle', 'reasoning': 'No valid moves available'}
 ```
 **Última actualización:** 13 de Noviembre, 2025
+
+---
+
+## 3. Implementación IA Difícil (Pathfinding con A*)
+
+### 3.1 Prompts Utilizados
+
+**Prompt 1:** Implementación de algoritmo A*
+```
+"Implementa _get_best_next_move_astar() en MediumAI que use A* pathfinding para encontrar 
+el camino óptimo al objetivo. Usa heapq como cola de prioridad con tuplas (f_score, g_score, 
+position, first_direction). La heurística debe ser distancia Manhattan. Limita iteraciones 
+a 50 para mantener rendimiento en tiempo real. Retorna solo la primera dirección del camino 
+óptimo encontrado."
+```
+
+**Código generado:**
+```python
+def _get_best_next_move_astar(self, game, target_pos):
+    if not target_pos:
+        return None
+    
+    import heapq
+    city = game.get_city()
+    start = (self.x, self.y)
+    goal = target_pos
+    
+    # Priority queue: (f_score, g_score, position, first_direction)
+    open_set = []
+    heapq.heappush(open_set, (0, 0, start, None))
+    
+    visited = set()
+    max_iterations = 50
+    iterations = 0
+    
+    while open_set and iterations < max_iterations:
+        iterations += 1
+        f_score, g_score, current, first_dir = heapq.heappop(open_set)
+        
+        if current in visited:
+            continue
+        visited.add(current)
+        
+        if current == goal:
+            return first_dir
+        
+        # Explorar vecinos
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            new_x = current[0] + dx
+            new_y = current[1] + dy
+            next_pos = (new_x, new_y)
+            
+            if next_pos in visited:
+                continue
+            if not city.is_valid_position(new_x, new_y):
+                continue
+            if city.is_blocked(new_x, new_y):
+                continue
+            
+            new_g_score = g_score + 1
+            h_score = abs(next_pos[0] - goal[0]) + abs(next_pos[1] - goal[1])
+            new_f_score = new_g_score + h_score
+            
+            new_first_dir = first_dir if first_dir else (dx, dy)
+            heapq.heappush(open_set, (new_f_score, new_g_score, next_pos, new_first_dir))
+    
+    return None
+```
+
+---
+
+**Prompt 2:** Representación de ciudad como grafo ponderado
+```
+"Modifica el sistema para que la ciudad se trate como un grafo ponderado donde cada tile 
+es un nodo y las conexiones entre tiles adyacentes son aristas. El peso de cada arista debe 
+ser el surface_weight del tile destino (obtenido de city.get_surface_weight()). Carreteras 
+('C') tienen peso 1.0, parques ('P') peso 1.5, edificios bloqueados peso infinito. Integra 
+esto en la función de costo de A*."
+```
+
+**Código generado:**
+```python
+def _get_edge_weight(self, city, x, y):
+    """Get the cost of moving to a specific tile"""
+    if not city.is_valid_position(x, y):
+        return float('inf')
+    if city.is_blocked(x, y):
+        return float('inf')
+    
+    surface_weight = city.get_surface_weight(x, y)
+    return surface_weight
+```
+
+---
+
+**Prompt 3:** Score mejorado con distancia exponencial
+```
+"Mejora _evaluate_position_score() para que use penalización exponencial por distancia en 
+lugar de lineal. Si distance==0, score=1000 (llegó al objetivo). Si distance==1, score=500. 
+Si distance<=3, score=200-(distance*50). Para distancias mayores, usa score=-distance*80. 
+Agrega bonus de +20 si está alineado en un eje (dx==0 o dy==0) con el objetivo."
+```
+
+**Código generado:**
+```python
+def _evaluate_position_score(self, game, position, target_pos):
+    city = game.get_city()
+    x, y = position
+    
+    if not city.is_valid_position(x, y) or city.is_blocked(x, y):
+        return float('-inf')
+    
+    distance = self._manhattan_distance(position, target_pos)
+    
+    # Penalización exponencial por distancia
+    if distance == 0:
+        score = 1000.0
+    elif distance == 1:
+        score = 500.0
+    elif distance <= 3:
+        score = 200.0 - (distance * 50.0)
+    else:
+        score = -distance * 80.0
+    
+    # Bonus por alineación en eje
+    target_x, target_y = target_pos
+    dx_to_target = target_x - x
+    dy_to_target = target_y - y
+    
+    if dx_to_target == 0 or dy_to_target == 0:
+        score += 20.0
+    
+    return score
+```
+
+---
+
+**Prompt 4:** Sistema Multi-tier de pathfinding
+```
+"Crea _move_towards_target() que use pathfinding multi-tier: Tier 1 usa A* con 70% probabilidad 
+para caminos óptimos. Tier 2 usa lookahead Expectimax con 90% si A* falla. Tier 3 usa greedy 
+simple como fallback. Tier 4 usa movimiento random. Cada tier solo se ejecuta si el anterior 
+falló en encontrar dirección válida."
+```
+
+**Código generado:**
+```python
+def _move_towards_target(self, game, target_pos):
+    if not target_pos:
+        return False
+    
+    city = game.get_city()
+    weather = game.get_weather()
+    direction = None
+    
+    # Tier 1: A* (70%)
+    if random.random() < 0.70:
+        direction = self._get_best_next_move_astar(game, target_pos)
+    
+    # Tier 2: Expectimax lookahead (90%)
+    if not direction and random.random() < 0.90:
+        direction = self._get_best_direction_with_lookahead(game, target_pos)
+    
+    # Tier 3: Greedy
+    if not direction:
+        direction = self._get_greedy_direction(game, target_pos)
+    
+    # Tier 4: Random fallback
+    if not direction:
+        direction = self._get_random_valid_direction(game)
+    
+    if direction:
+        dx, dy = direction
+        new_x = self.x + dx
+        new_y = self.y + dy
+        self.last_direction = (dx, dy)
+        return self.move_to(new_x, new_y, city, weather)
+    
+    return False
+```
+
+---
+
+**Prompt 5:** Detección y escape de loops mejorado
+```
+"Implementa sistema anti-loop que detecte 3 patrones: 1) Loop apretado de 2 posiciones únicas 
+en 8 movimientos → forzar 8 random moves. 2) Loop pequeño de 3-4 posiciones visitadas 3+ veces 
+→ forzar 6 random moves. 3) Patrón back-and-forth A→B→A→B→A→B → forzar 5 random moves. Usa 
+deque(maxlen=12) para tracking. Durante escape, evitar posiciones de los últimos 4 movimientos."
+```
+
+**Código generado:**
+```python
+def _detect_and_handle_loops(self, current_pos):
+    self.recent_positions.append(current_pos)
+    
+    if len(self.recent_positions) >= 8:
+        recent_list = list(self.recent_positions)[-10:]
+        unique_recent = set(recent_list)
+        
+        # Patrón 1: Loop apretado (2 posiciones)
+        if len(unique_recent) <= 2:
+            if not self.stuck_in_loop:
+                self.stuck_in_loop = True
+                self.random_moves_remaining = 8
+                print(f"[AI] Loop apretado detectado!")
+        
+        # Patrón 2: Loop pequeño (3-4 posiciones, visitadas 3+ veces)
+        elif len(unique_recent) <= 4:
+            current_count = recent_list[-8:].count(current_pos)
+            if current_count >= 3:
+                if not self.stuck_in_loop:
+                    self.stuck_in_loop = True
+                    self.random_moves_remaining = 6
+        
+        # Patrón 3: Back-and-forth
+        if len(recent_list) >= 6:
+            if (recent_list[-1] == recent_list[-3] == recent_list[-5] and 
+                recent_list[-2] == recent_list[-4] == recent_list[-6]):
+                if not self.stuck_in_loop:
+                    self.stuck_in_loop = True
+                    self.random_moves_remaining = 5
+```
+**Última actualización:** 14 de Noviembre, 2025
+
+---
+
+## 4. Optimizaciones y Debugging
+
+### 4.1 Corrección de Navegación (Medium AI)
+
+**Prompt 1:** Corrección de IA que no llega al dropoff
+```
+"La IA Medium recoge pedidos pero después no llega a dejar el pedido. 
+Diagnostica el problema: cuando recoge el pedido, actualiza target_position al dropoff pero 
+el sistema anti-loop probablemente se activa porque las posiciones recientes están cerca del 
+pickup. Implementa limpieza de estado: cuando recoge pedido, hacer clear() de recent_positions, 
+resetear stuck_in_loop=False, random_moves_remaining=0, y last_direction=None para reiniciar 
+la navegación limpia hacia el dropoff."
+```
+
+**Código generado:**
+```python
+# En _check_pickup_delivery() después de recoger:
+if distance <= 1 and self.weight + self.active_order.weight <= 8.0:
+    self.active_order.state = "carrying"
+    self.active_order.picked_at = elapsed_game_time
+    self.weight += self.active_order.weight
+    
+    # Update target to dropoff
+    self.target_position = self.active_order.dropoff
+    self.target_type = "dropoff"
+    
+    # CRITICAL: Limpiar estado de navegación para nueva ruta
+    self.recent_positions.clear()
+    self.stuck_in_loop = False
+    self.random_moves_remaining = 0
+    self.last_direction = None
+    
+    print(f"[AI] Picked up {self.active_order.id} - heading to dropoff")
+```
+
+---
+
+**Prompt 2:** Optimización de movimiento cerca del objetivo
+```
+"Agrega optimización para cuando la IA está a 2-3 tiles del objetivo. En lugar de usar 
+pathfinding complejo, usa aproximación directa simple: calcula dx y dy hacia el target, 
+intenta movimiento en X primero, si está bloqueado intenta Y. Solo usa pathfinding normal 
+si ambos están bloqueados. Esto hace la IA más rápida y directa en distancias cortas."
+```
+
+**Código generado:**
+```python
+if distance_to_target <= 3:
+    city = game.get_city()
+    weather = game.get_weather()
+    
+    target_x, target_y = self.target_position
+    dx = 1 if target_x > self.x else (-1 if target_x < self.x else 0)
+    dy = 1 if target_y > self.y else (-1 if target_y < self.y else 0)
+    
+    moved = False
+    if dx != 0:
+        new_x = self.x + dx
+        if city.is_valid_position(new_x, self.y) and not city.is_blocked(new_x, self.y):
+            moved = self.move_to(new_x, self.y, city, weather)
+    
+    if not moved and dy != 0:
+        new_y = self.y + dy
+        if city.is_valid_position(self.x, new_y) and not city.is_blocked(self.x, new_y):
+            moved = self.move_to(self.x, new_y, city, weather)
+    
+    if not moved:
+        self._move_towards_target(game, self.target_position)
+```
+
+---
+
+**Prompt 3:** Validación de consistencia target/state
+```
+"Implementa validación cada frame que verifique si el target_type coincide con el estado 
+de la orden activa. Si active_order.state=='accepted' pero target_type!='pickup', corregir 
+automáticamente. Si active_order.state=='carrying' pero target_type!='dropoff', corregir. 
+Agrega logs de advertencia cuando se detecte inconsistencia."
+```
+
+**Código generado:**
+```python
+# En run_bot_logic(), después de _check_pickup_delivery()
+if self.active_order:
+    if self.active_order.state == "accepted" and self.target_type != "pickup":
+        print(f"[AI] ⚠️ Corrigiendo target: debería ser pickup, era {self.target_type}")
+        self.target_position = self.active_order.pickup
+        self.target_type = "pickup"
+    elif self.active_order.state == "carrying" and self.target_type != "dropoff":
+        print(f"[AI] ⚠️ Corrigiendo target: debería ser dropoff, era {self.target_type}")
+        self.target_position = self.active_order.dropoff
+        self.target_type = "dropoff"
+```
+
+**Última actualización:** 15 de Noviembre, 2025
+
+---
+
+## 6. Análisis de Rendimiento y Complejidad
+
+### 6.1 Análisis por Nivel de Dificultad
+
+#### Nivel Fácil (EasyAI)
+**Estructuras de datos:**
+- `list`: Almacenamiento de jobs y direcciones - O(n) acceso
+- `deque(maxlen=5)`: Cola FIFO para dirección - O(1) enqueue/dequeue
+- Random selection: O(1) amortizado
+
+**Complejidad temporal:**
+- Selección de pedido: O(n) donde n = número de pedidos disponibles
+- Movimiento aleatorio: O(1) por decisión
+- Detección de bloqueos: O(1) verificación
+
+**Complejidad espacial:** O(n + k) donde k=5 (tamaño cola)
+
+#### Nivel Medio (MediumAI)
+**Estructuras de datos:**
+- `deque(maxlen=12)`: Tracking de posiciones recientes - O(1) operaciones
+- `TreeNode`: Árbol de decisión - O(4^d) nodos donde d=profundidad
+- `heapq`: Cola de prioridad para A* - O(log n) push/pop
+- `set`: Visitados en búsqueda - O(1) lookup
+
+**Complejidad temporal:**
+- Selección con heurística: O(n log n) por sorting
+- Lookahead Expectimax: O(4^d) donde d=3 (profundidad) = O(64) constante
+- A* pathfinding: O(b^d) donde b=4, d limitado a 50 = O(4^50) worst case, típicamente O(n log n) con buena heurística
+- Evaluación de posición: O(1)
+
+**Complejidad espacial:** O(4^d + n) para árbol + jobs evaluados
+
+#### Nivel Difícil (HardAI)
+**Estructuras de datos:**
+- Grafo implícito: Ciudad como grafo ponderado - O(V + E)
+- Priority queue: heapq para Dijkstra/A* - O(log V)
+- Path storage: Lista de posiciones - O(k) donde k = longitud del camino
+
+**Complejidad temporal:**
+- Dijkstra: O((V + E) log V) con heap
+- A* optimizado: O(b^d) pero típicamente mucho mejor que Dijkstra
+- Replanificación: O(V log V) cuando cambia el clima
+
+**Complejidad espacial:** O(V + E) para representación del grafo
+---
+
+**Fecha de entrega:** 17 de Noviembre, 2025  
+**Última actualización:** 17 de Noviembre, 2025 - 11:30 PM
