@@ -849,7 +849,7 @@ class EasyAI(AbstractAI):
         """
         Randomly select an available job from the jobs inventory.
 
-        AI must wait 3 seconds after an order appears before selecting it,
+        AI must wait 1 second after an order appears before selecting it,
         giving human players a fair chance to grab orders first.
 
         Uses random selection from a list of available jobs.
@@ -1291,15 +1291,16 @@ class MediumAI(AbstractAI):
         self.last_evaluation_results = []  # Store last evaluation for debugging
 
         # Lookahead configuration (Expectimax-style)
-        # Evaluate 2 moves ahead (as per spec: 2-3 actions)
-        self.lookahead_depth = 2
+        # Evaluate 3 moves ahead (as per spec: 2-3 actions)
+        self.lookahead_depth = 3  # Increased for better pathfinding
         self.max_branches = 4  # 4 directions per node (UP, DOWN, LEFT, RIGHT)
 
-        # Anti-loop mechanism (simple and effective)
+        # Anti-loop mechanism (improved)
         from collections import deque
-        self.recent_positions = deque(maxlen=8)  # Track recent positions
+        self.recent_positions = deque(maxlen=12)  # Track more positions
         self.stuck_in_loop = False
         self.random_moves_remaining = 0
+        self.last_direction = None  # Track last direction to avoid backtracking
 
         self.city = None
         self.weather = None
@@ -1348,6 +1349,84 @@ class MediumAI(AbstractAI):
             int: Manhattan distance
         """
         return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
+
+    def _get_best_next_move_astar(self, game, target_pos):
+        """
+        Get the best next move using simplified A* pathfinding.
+        
+        This provides a direct path to the target, more efficient than
+        random exploration. Uses Manhattan distance as heuristic.
+        
+        Complexity: O(b^d) where b is branching factor (4) and d is depth
+        
+        Args:
+            game: The game instance
+            target_pos: Target position tuple
+            
+        Returns:
+            tuple: (dx, dy) best first direction or None
+        """
+        if not target_pos:
+            return None
+            
+        from collections import deque
+        import heapq
+        
+        city = game.get_city()
+        start = (self.x, self.y)
+        goal = target_pos
+        
+        # Check if already at goal
+        if start == goal:
+            return None
+        
+        # Priority queue: (f_score, g_score, position, first_direction)
+        # f_score = g_score + heuristic
+        open_set = []
+        heapq.heappush(open_set, (0, 0, start, None))
+        
+        visited = set()
+        max_iterations = 50  # Limit iterations for performance
+        iterations = 0
+        
+        while open_set and iterations < max_iterations:
+            iterations += 1
+            f_score, g_score, current, first_dir = heapq.heappop(open_set)
+            
+            if current in visited:
+                continue
+            visited.add(current)
+            
+            # Check if we reached the goal
+            if current == goal:
+                return first_dir
+            
+            # Try all 4 directions
+            for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+                new_x = current[0] + dx
+                new_y = current[1] + dy
+                next_pos = (new_x, new_y)
+                
+                # Skip if invalid or visited
+                if next_pos in visited:
+                    continue
+                if not city.is_valid_position(new_x, new_y):
+                    continue
+                if city.is_blocked(new_x, new_y):
+                    continue
+                
+                # Calculate scores
+                new_g_score = g_score + 1
+                h_score = self._manhattan_distance(next_pos, goal)
+                new_f_score = new_g_score + h_score
+                
+                # Track the first direction taken from start
+                new_first_dir = first_dir if first_dir else (dx, dy)
+                
+                heapq.heappush(open_set, (new_f_score, new_g_score, next_pos, new_first_dir))
+        
+        # No path found, return None
+        return None
 
     def _evaluate_job_score(self, game, order):
         """
@@ -1416,7 +1495,7 @@ class MediumAI(AbstractAI):
         """
         Select the best job using greedy algorithm with heuristic evaluation.
 
-        AI must wait 3 seconds after an order appears before selecting it,
+        AI must wait 1 second after an order appears before selecting it,
         giving human players a fair chance to grab orders first.
 
         Uses sorting to find the job with highest score.
@@ -1438,14 +1517,14 @@ class MediumAI(AbstractAI):
         if not available_jobs:
             return None
 
-        # Filter jobs: AI must wait 3 seconds after order appears
+        # Filter jobs: AI must wait 1 second after order appears
         game_time_remaining = game.get_game_time()
         elapsed_game_time = game._game_time_limit_s - game_time_remaining
 
         eligible_jobs = []
         for job in available_jobs:
             time_since_appearance = elapsed_game_time - job.release_time
-            if time_since_appearance >= 3.0:  # Wait 3 seconds
+            if time_since_appearance >= 1.0:  # Wait 1 second
                 eligible_jobs.append(job)
 
         if not eligible_jobs:
@@ -1516,6 +1595,12 @@ class MediumAI(AbstractAI):
             self.active_order = order
             self.target_position = order.pickup
             self.target_type = "pickup"
+            
+            # Clear navigation state for new job
+            self.recent_positions.clear()
+            self.stuck_in_loop = False
+            self.random_moves_remaining = 0
+            
             distance = self._manhattan_distance((self.x, self.y), order.pickup)
             print(
                 f"[MediumAI] ✓ Accepted job {order.id} (Priority {order.priority}, ${order.payout}) - distance: {distance} tiles")
@@ -1588,17 +1673,33 @@ class MediumAI(AbstractAI):
         # Calculate distance to target
         distance = self._manhattan_distance(position, target_pos)
 
-        # Base score: inverse of distance (closer is better)
-        # Multiply by 10 to make it significant
-        score = -distance * 10.0
+        # Base score: STRONGLY prioritize reducing distance
+        # Exponential penalty for distance - closer is MUCH better
+        if distance == 0:
+            score = 1000.0  # Reached target!
+        elif distance == 1:
+            score = 500.0   # One step away
+        elif distance <= 3:
+            score = 200.0 - (distance * 50.0)  # Very close
+        else:
+            score = -distance * 80.0  # Further away = worse score
 
-        # Terrain bonus (prefer roads 'C' over other terrain)
+        # Direction alignment bonus (moving in the right general direction)
+        target_x, target_y = target_pos
+        dx_to_target = target_x - x
+        dy_to_target = target_y - y
+        
+        # Bonus for being aligned on one axis
+        if dx_to_target == 0 or dy_to_target == 0:
+            score += 20.0  # Direct line to target
+
+        # Terrain bonus (secondary, doesn't override distance)
         if y < len(city.tiles) and x < len(city.tiles[0]):
             tile_type = city.tiles[y][x]
             if tile_type == 'C':  # Road
-                score += 3.0  # Bonus for roads
+                score += 3.0
             elif tile_type == 'P':  # Park/grass
-                score += 1.0  # Small bonus
+                score += 1.0
 
         return score
 
@@ -1663,6 +1764,10 @@ class MediumAI(AbstractAI):
 
                 # Check if valid move
                 if not city.is_valid_position(new_x, new_y) or city.is_blocked(new_x, new_y):
+                    continue
+
+                # Avoid immediate backtracking (don't go back to parent position)
+                if current_node.parent and new_pos == current_node.parent.position:
                     continue
 
                 # Evaluate score for this position
@@ -1782,23 +1887,32 @@ class MediumAI(AbstractAI):
         current_distance = self._manhattan_distance(
             (self.x, self.y), target_pos)
 
-        # Score based on distance reduction
+        # Score based on distance reduction (STRONGLY prioritize)
         distance_improvement = current_distance - new_distance
-        score = distance_improvement * 10.0
+        score = distance_improvement * 100.0  # Much higher weight
 
-        # Terrain bonus
+        # Big bonus for getting closer
+        if distance_improvement > 0:
+            score += 50.0  # Extra bonus for any progress toward target
+
+        # Penalty for moving away
+        if distance_improvement < 0:
+            score -= 100.0  # Heavy penalty for moving away
+
+        # Terrain bonus (secondary consideration)
         if new_y < len(city.tiles) and new_x < len(city.tiles[0]):
             tile_type = city.tiles[new_y][new_x]
             if tile_type == 'C':
-                score += 5.0
+                score += 3.0
 
         return score
 
     def _get_greedy_direction(self, game, target_pos):
         """
-        Get best direction using simple greedy evaluation (fallback).
+        Get best direction using improved greedy evaluation (fallback).
 
-        Used when lookahead is not feasible or as a backup.
+        Prioritizes moves that reduce distance to target, with preference
+        for diagonal progress (reducing both x and y distance).
 
         Complexity: O(1)
 
@@ -1812,21 +1926,55 @@ class MediumAI(AbstractAI):
         if not target_pos:
             return None
 
-        directions = [
-            (0, -1), (0, 1), (-1, 0), (1, 0)
-        ]
-
-        move_scores = []
-        for dx, dy in directions:
-            score = self._evaluate_move_direction(game, target_pos, dx, dy)
-            if score > float('-inf'):
-                move_scores.append(((dx, dy), score))
-
-        if not move_scores:
-            return None
-
-        move_scores.sort(key=lambda x: x[1], reverse=True)
-        return move_scores[0][0]
+        city = game.get_city()
+        target_x, target_y = target_pos
+        
+        # Calculate which direction we need to go
+        dx_needed = 1 if target_x > self.x else (-1 if target_x < self.x else 0)
+        dy_needed = 1 if target_y > self.y else (-1 if target_y < self.y else 0)
+        
+        # Priority order: direct moves first, then perpendicular
+        candidate_directions = []
+        
+        # Primary: moves that get us closer
+        if dx_needed != 0:
+            candidate_directions.append((dx_needed, 0))
+        if dy_needed != 0:
+            candidate_directions.append((0, dy_needed))
+        
+        # Secondary: perpendicular moves
+        if dy_needed == 0 and dx_needed != 0:
+            candidate_directions.extend([(0, -1), (0, 1)])
+        if dx_needed == 0 and dy_needed != 0:
+            candidate_directions.extend([(-1, 0), (1, 0)])
+        
+        # Tertiary: opposite directions (last resort)
+        if dx_needed != 0:
+            candidate_directions.append((-dx_needed, 0))
+        if dy_needed != 0:
+            candidate_directions.append((0, -dy_needed))
+        
+        # Try candidates in order
+        for dx, dy in candidate_directions:
+            new_x = self.x + dx
+            new_y = self.y + dy
+            
+            if (city.is_valid_position(new_x, new_y) and 
+                not city.is_blocked(new_x, new_y)):
+                # Avoid immediate backtracking
+                if self.last_direction and (dx, dy) == (-self.last_direction[0], -self.last_direction[1]):
+                    continue
+                return (dx, dy)
+        
+        # If all else fails, try any valid direction
+        for dx, dy in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            new_x = self.x + dx
+            new_y = self.y + dy
+            if (city.is_valid_position(new_x, new_y) and 
+                not city.is_blocked(new_x, new_y)):
+                return (dx, dy)
+        
+        return None
 
     def _get_random_valid_direction(self, game):
         """
@@ -1900,20 +2048,57 @@ class MediumAI(AbstractAI):
         # === LOOP DETECTION ===
         self.recent_positions.append(current_pos)
 
-        # Simple but effective: if we're oscillating between 2-3 positions, we're stuck
-        if len(self.recent_positions) >= 6:
-            unique_recent = set(list(self.recent_positions)[-6:])
-            if len(unique_recent) <= 2:  # Only 2 unique positions in last 6 moves
+        # Enhanced loop detection: multiple patterns
+        if len(self.recent_positions) >= 8:
+            recent_list = list(self.recent_positions)[-10:]
+            unique_recent = set(recent_list)
+            
+            # Pattern 1: Very tight loop (2 positions)
+            if len(unique_recent) <= 2:
                 if not self.stuck_in_loop:
                     self.stuck_in_loop = True
-                    self.random_moves_remaining = 5  # Force 5 random moves to escape
-                    print(
-                        f"[MediumAI] 🔄 Loop detected! Forcing random exploration...")
+                    self.random_moves_remaining = 8
+                    print(f"[MediumAI] 🔄 TIGHT loop detected! Forcing strong exploration...")
+            
+            # Pattern 2: Small loop (3-4 positions)
+            elif len(unique_recent) <= 4:
+                # Count how many times we've been at current position
+                current_count = recent_list[-8:].count(current_pos)
+                if current_count >= 3:  # Been here 3+ times recently
+                    if not self.stuck_in_loop:
+                        self.stuck_in_loop = True
+                        self.random_moves_remaining = 6
+                        print(f"[MediumAI] 🔄 Loop detected! (visited {current_count}x) Forcing exploration...")
+            
+            # Pattern 3: Repeated back-and-forth (A->B->A->B)
+            if len(recent_list) >= 6:
+                if (recent_list[-1] == recent_list[-3] == recent_list[-5] and 
+                    recent_list[-2] == recent_list[-4] == recent_list[-6]):
+                    if not self.stuck_in_loop:
+                        self.stuck_in_loop = True
+                        self.random_moves_remaining = 5
+                        print(f"[MediumAI] 🔄 Back-and-forth pattern! Forcing exploration...")
 
-        # === ESCAPE MODE (Random exploration) ===
+        # === ESCAPE MODE (Smart random exploration) ===
         if self.random_moves_remaining > 0:
             self.random_moves_remaining -= 1
+            
+            # Try to move in a direction we haven't recently used
             direction = self._get_random_valid_direction(game)
+            
+            # Avoid going back to recently visited positions during escape
+            attempts = 0
+            while direction and attempts < 4:
+                dx, dy = direction
+                test_pos = (self.x + dx, self.y + dy)
+                
+                # Check if this position was recently visited
+                if test_pos not in list(self.recent_positions)[-4:]:
+                    break  # Good direction, not recently visited
+                    
+                # Try another direction
+                direction = self._get_random_valid_direction(game)
+                attempts += 1
 
             if self.random_moves_remaining == 0:
                 self.stuck_in_loop = False
@@ -1924,20 +2109,22 @@ class MediumAI(AbstractAI):
                 dx, dy = direction
                 new_x = self.x + dx
                 new_y = self.y + dy
+                self.last_direction = (dx, dy)
                 return self.move_to(new_x, new_y, city, weather)
             return False
 
-        # === NORMAL OPERATION (Expectimax evaluation) ===
-
-        # Try lookahead evaluation (90% of the time)
-        # 10% randomness prevents getting stuck in deterministic patterns
+        # === NORMAL OPERATION (Multi-tier pathfinding) ===
         direction = None
+        
+        # Tier 1: Try A* for direct pathfinding (70% of the time - increased)
+        if random.random() < 0.70:
+            direction = self._get_best_next_move_astar(game, target_pos)
+        
+        # Tier 2: Try lookahead Expectimax (if A* failed or not chosen)
+        if not direction and random.random() < 0.90:
+            direction = self._get_best_direction_with_lookahead(game, target_pos)
 
-        if random.random() < 0.90:
-            direction = self._get_best_direction_with_lookahead(
-                game, target_pos)
-
-        # Fallback to greedy if lookahead fails or random roll
+        # Tier 3: Fallback to greedy
         if not direction:
             direction = self._get_greedy_direction(game, target_pos)
 
@@ -1950,6 +2137,7 @@ class MediumAI(AbstractAI):
             dx, dy = direction
             new_x = self.x + dx
             new_y = self.y + dy
+            self.last_direction = (dx, dy)  # Track direction
             return self.move_to(new_x, new_y, city, weather)
 
         return False
@@ -1987,11 +2175,18 @@ class MediumAI(AbstractAI):
                     # Update target to dropoff
                     self.target_position = self.active_order.dropoff
                     self.target_type = "dropoff"
+                    
+                    # IMPORTANT: Clear loop detection state for new route
+                    self.recent_positions.clear()
+                    self.stuck_in_loop = False
+                    self.random_moves_remaining = 0
+                    self.last_direction = None
 
                     new_distance = self._manhattan_distance(
                         (self.x, self.y), self.active_order.dropoff)
                     print(
-                        f"[MediumAI] ✓ Picked up {self.active_order.id} - heading to dropoff (distance: {new_distance} tiles)")
+                        f"[MediumAI] ✓ Picked up {self.active_order.id} - heading to dropoff at {self.active_order.dropoff} (distance: {new_distance} tiles)")
+                    print(f"[MediumAI] 🧭Cleared navigation state for new route")
                     return f"Package {self.active_order.id} picked up"
                 else:
                     print(
@@ -2077,6 +2272,18 @@ class MediumAI(AbstractAI):
 
         # Check for pickup/delivery at current position
         self._check_pickup_delivery(game)
+        
+        # Validate active order and target consistency
+        if self.active_order:
+            # Ensure target matches the current state
+            if self.active_order.state == "accepted" and self.target_type != "pickup":
+                print(f"[MediumAI] ⚠️ Correcting target: should be pickup, was {self.target_type}")
+                self.target_position = self.active_order.pickup
+                self.target_type = "pickup"
+            elif self.active_order.state == "carrying" and self.target_type != "dropoff":
+                print(f"[MediumAI] ⚠️ Correcting target: should be dropoff, was {self.target_type}")
+                self.target_position = self.active_order.dropoff
+                self.target_type = "dropoff"
 
         # Job selection logic - use greedy evaluation
         should_select_job = False
@@ -2097,15 +2304,50 @@ class MediumAI(AbstractAI):
         if not self.is_moving:
             # If we have a target, move towards it intelligently
             if self.target_position:
-                # Check if we're already at or very close to target
-                distance_to_target = max(
-                    abs(self.x - self.target_position[0]),
-                    abs(self.y - self.target_position[1])
+                # Calculate distance to target
+                distance_to_target = self._manhattan_distance(
+                    (self.x, self.y), self.target_position
                 )
+                
+                # Debug: Show target info every 60 frames (~1 second)
+                if hasattr(self, '_debug_counter'):
+                    self._debug_counter += 1
+                else:
+                    self._debug_counter = 0
+                    
+                if self._debug_counter % 60 == 0:
+                    print(f"[MediumAI] 🎯 Target: {self.target_position} ({self.target_type}) | Current: ({self.x}, {self.y}) | Distance: {distance_to_target}")
 
+                # If we're far enough away, move towards target
                 if distance_to_target > 1:
-                    # Move towards target using greedy evaluation
-                    self._move_towards_target(game, self.target_position)
+                    # Special case: if very close (2-3 tiles), use direct greedy approach
+                    if distance_to_target <= 3:
+                        city = game.get_city()
+                        weather = game.get_weather()
+                        
+                        # Direct approach for close targets
+                        target_x, target_y = self.target_position
+                        dx = 1 if target_x > self.x else (-1 if target_x < self.x else 0)
+                        dy = 1 if target_y > self.y else (-1 if target_y < self.y else 0)
+                        
+                        # Try primary direction first
+                        moved = False
+                        if dx != 0:
+                            new_x = self.x + dx
+                            if city.is_valid_position(new_x, self.y) and not city.is_blocked(new_x, self.y):
+                                moved = self.move_to(new_x, self.y, city, weather)
+                        
+                        if not moved and dy != 0:
+                            new_y = self.y + dy
+                            if city.is_valid_position(self.x, new_y) and not city.is_blocked(self.x, new_y):
+                                moved = self.move_to(self.x, new_y, city, weather)
+                        
+                        # If direct approach failed, use normal pathfinding
+                        if not moved:
+                            self._move_towards_target(game, self.target_position)
+                    else:
+                        # Normal pathfinding for distant targets
+                        self._move_towards_target(game, self.target_position)
 
 
 class HardAI(AbstractAI):

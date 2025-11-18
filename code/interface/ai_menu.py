@@ -3,12 +3,12 @@ from .base_view import BaseView
 
 
 class AIMenuView(BaseView):
-    """Seleccionar dificultad de IA: Easy / Medium / Hard. Back / Next para navegar."""
+    """Seleccionar dificultad de IA: Solo / Easy / Medium / Hard. Back / Next para navegar."""
 
     def __init__(self):
         super().__init__()
         self.hovered = None
-        self.selected = None  # "Easy", "Medium", "Hard"
+        self.selected = None  # "None" (Solo), "Easy", "Medium", "Hard"
         self.title_font = None
         self.button_font = None
         self.small_font = None
@@ -34,16 +34,17 @@ class AIMenuView(BaseView):
         btn_h = self.window.get_scaled_size(56)
         spacing = self.window.get_scaled_size(18)
 
-        # Three difficulty buttons stacked
-        start_y = center_y - (btn_h + spacing)
+        # Four difficulty buttons stacked (including Solo)
+        start_y = center_y - (2 * btn_h + spacing)
         self.buttons = {
-            "easy": {"rect": pygame.Rect(center_x - btn_w//2, start_y, btn_w, btn_h), "text": "Easy"},
-            "medium": {"rect": pygame.Rect(center_x - btn_w//2, start_y + (btn_h + spacing), btn_w, btn_h), "text": "Medium"},
-            "hard": {"rect": pygame.Rect(center_x - btn_w//2, start_y + 2*(btn_h + spacing), btn_w, btn_h), "text": "Hard"},
+            "solo": {"rect": pygame.Rect(center_x - btn_w//2, start_y, btn_w, btn_h), "text": "Solo", "value": "None"},
+            "easy": {"rect": pygame.Rect(center_x - btn_w//2, start_y + (btn_h + spacing), btn_w, btn_h), "text": "Easy", "value": "Easy"},
+            "medium": {"rect": pygame.Rect(center_x - btn_w//2, start_y + 2*(btn_h + spacing), btn_w, btn_h), "text": "Medium", "value": "Medium"},
+            "hard": {"rect": pygame.Rect(center_x - btn_w//2, start_y + 3*(btn_h + spacing), btn_w, btn_h), "text": "Hard", "value": "Hard"},
         }
 
         # Back / Next below
-        bottom_y = start_y + 3*(btn_h + spacing) + \
+        bottom_y = start_y + 4*(btn_h + spacing) + \
             self.window.get_scaled_size(18)
         side_w = (btn_w - spacing) // 2
         self.buttons.update({
@@ -72,9 +73,9 @@ class AIMenuView(BaseView):
                 self._on_button("next")
 
     def _on_button(self, key):
-        if key in ("easy", "medium", "hard"):
-            self.selected = {"easy": "Easy",
-                             "medium": "Medium", "hard": "Hard"}[key]
+        if key in ("solo", "easy", "medium", "hard"):
+            # Get the value from button data
+            self.selected = self.buttons[key].get("value", self.buttons[key]["text"])
             # persist selection on window for other views
             if self.window:
                 self.window.selected_ai = self.selected
@@ -105,7 +106,8 @@ class AIMenuView(BaseView):
             rect = data["rect"]
             is_hover = (self.hovered == key)
             # highlight selected difficulties
-            if key in ("easy", "medium", "hard") and self.selected == data["text"]:
+            button_value = data.get("value", data["text"])
+            if key in ("solo", "easy", "medium", "hard") and self.selected == button_value:
                 bg = (40, 90, 40)  # selected greenish
                 # Usar get con valor por defecto para evitar KeyError si 'GOLD' no está definido
                 border = getattr(self.window, "colors", {}).get(
@@ -124,7 +126,7 @@ class AIMenuView(BaseView):
             screen.blit(txt, txt_rect)
 
         # Small hint
-        hint = "Select difficulty then press Next"
+        hint = "Select difficulty (or Solo) then press Next"
         hint_surf = self.small_font.render(
             hint, True, self.window.colors['GRAY'])
         hint_rect = hint_surf.get_rect(

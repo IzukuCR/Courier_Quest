@@ -564,16 +564,28 @@ class Game:
         """Create the corresponding AI based on the selected difficulty."""
         self.difficulty = difficulty.capitalize()
 
-        if self.difficulty == "Easy":
+        if self.difficulty == "None":
+            # No AI - solo jugador humano
+            self.ai_bot = None
+            print(f"[Game] No AI - Playing solo")
+        elif self.difficulty == "Easy":
             self.ai_bot = EasyAI(start_x=12, start_y=12)
+            self.ai_bot.jobs = self._ai_jobs
+            self.ai_bot.inventory = self._ai_inventory
+            print(f"[Game] AI created: {self.ai_bot.get_name()}")
         elif self.difficulty == "Medium":
             self.ai_bot = MediumAI(start_x=12, start_y=12)
+            self.ai_bot.jobs = self._ai_jobs
+            self.ai_bot.inventory = self._ai_inventory
+            print(f"[Game] AI created: {self.ai_bot.get_name()}")
         elif self.difficulty == "Hard":
             self.ai_bot = HardAI(start_x=12, start_y=12)
+            self.ai_bot.jobs = self._ai_jobs
+            self.ai_bot.inventory = self._ai_inventory
+            print(f"[Game] AI created: {self.ai_bot.get_name()}")
         else:
             self.ai_bot = None
-
-        print(f"[Game] AI created: {self.ai_bot.get_name()}")
+            print(f"[Game] Unknown difficulty '{difficulty}' - No AI")
 
     def start_bot(self):
         """Inicia el hilo del bot de IA en paralelo al juego."""
