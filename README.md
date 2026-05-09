@@ -2,10 +2,6 @@
 
 Un videojuego de entrega desarrollado en Python usando Pygame donde el jugador controla un repartidor en bicicleta que debe completar pedidos en una ciudad mientras gestiona tiempo, clima, inventario y reputación. **Ahora con jugador CPU (IA) en tres niveles de dificultad.**
 
-# Integrantes del Grupo
-- Isaac Rodriguez Aguero
-- Josué Ezequiel Ulloa Brenes
-
 # Descripción
 
 Este proyecto implementa un videojuego donde el jugador es un repartidor que debe completar pedidos en una ciudad. El objetivo es alcanzar una meta de ingresos antes de que termine el tiempo, mientras se gestionan varios factores como resistencia del jugador, cambios climáticos, peso del inventario y sistema de reputación.
